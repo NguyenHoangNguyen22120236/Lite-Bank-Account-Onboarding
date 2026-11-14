@@ -1,0 +1,109 @@
+syntax = "proto3";
+
+package onboarding.v1;
+
+option go_package = "github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/gen/onboarding/v1;onboardingv1";
+
+enum ApplicationStatus {
+  APPLICATION_STATUS_UNSPECIFIED = 0;
+  APPLICATION_STATUS_PENDING_TERMS_ACCEPTANCE = 1;
+  APPLICATION_STATUS_PENDING_IDENTITY_SUBMISSION = 2;
+  APPLICATION_STATUS_PENDING_IDENTITY_VERIFICATION = 3;
+  APPLICATION_STATUS_PENDING_SANCTIONS_SCREENING = 4;
+  APPLICATION_STATUS_PENDING_HUMAN_REVIEW = 5;
+  APPLICATION_STATUS_PENDING_APPROVED = 6;
+  APPLICATION_STATUS_PENDING_REJECTED = 7;
+  APPLICATION_STATUS_PENDING_COMPLETED = 8;
+}
+
+enum HumanReviewDecision {
+  HUMAN_REVIEW_DECISION_UNSPECIFIED = 0;
+  HUMAN_REVIEW_DECISION_PENDING = 1;
+  HUMAN_REVIEW_DECISION_APPROVED = 2;
+  HUMAN_REVIEW_DECISION_REJECTED = 3;
+}
+
+message IdentityInfo {
+  string id_number = 1;
+  string full_name = 2;
+  string date_of_birth = 3; // YYYY-MM-DD
+  string id_expiry_date = 4; // YYYY-MM-DD
+  string phone_number = 5;
+  optional string email = 6;
+}
+
+// ----------------------
+// API 1: StartApplication
+// ----------------------
+message StartApplicationRequest {}
+
+message StartApplicationResponse {
+  string application_id = 1;
+}
+
+// ----------------------
+// API 2: AcceptTerms
+// ----------------------
+message AcceptTermsRequest {
+  string application_id = 1;
+  string term_id = 2;
+}
+
+message AcceptTermsResponse {
+  bool accepted = 1;
+}
+
+// ----------------------
+// API 3: SubmitIdentity
+// ----------------------
+message SubmitIdentityRequest {
+  string application_id = 1;
+  IdentityInfo identity = 2;
+}
+
+message SubmitIdentityResponse {
+  string application_id = 1;
+  ApplicationStatus status = 2;
+}
+
+// ----------------------
+// API 7: ReviewApplication
+// ----------------------
+message ReviewApplicationRequest {
+  string application_id = 1;
+  HumanReviewDecision decision = 2;
+  optional string reason = 3;
+}
+
+message ReviewApplicationResponse {
+  string application_id = 1;
+  ApplicationStatus status = 2;
+}
+
+// ----------------------
+// API 8: GetApplication
+// ----------------------
+message GetApplicationRequest {
+  string application_id = 1;
+}
+
+message GetApplicationResponse {
+  string application_id = 1;
+  ApplicationStatus status = 2;
+  optional string account_number = 3;
+}
+
+// ----------------------
+// ApplicationService
+// ----------------------
+service ApplicationService {
+  rpc StartApplication(StartApplicationRequest) returns (StartApplicationResponse);
+
+  rpc AcceptTerms(AcceptTermsRequest) returns (AcceptTermsResponse);
+
+  rpc SubmitIdentity(SubmitIdentityRequest) returns (SubmitIdentityResponse);
+
+  rpc ReviewApplication(ReviewApplicationRequest) returns (ReviewApplicationResponse);
+
+  rpc GetApplication(GetApplicationRequest) returns (GetApplicationResponse);
+}

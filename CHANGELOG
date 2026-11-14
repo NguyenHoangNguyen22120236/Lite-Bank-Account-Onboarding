@@ -1,0 +1,18 @@
+# Changelog
+
+## [0.1.0] - 2026-11-14
+
+Initial scaffold release.
+
+### Added
+
+- Application and third-party protobuf contracts with generated Go types and Connect RPC bindings.
+- Application HTTP server on port 8080 and third-party HTTP server on port 8081, each with a health endpoint.
+- Placeholder application domain, handler, repository, and service packages, plus third-party handler, service, and mock packages.
+- API design documentation and Buf configuration for protobuf generation.
+- README covering the project, current structure, API endpoints, and local startup instructions.
+- VERSION file initialized to 0.1.0.
+
+### Implementation Status
+
+- Both servers register generated unimplemented RPC handlers. Business workflows, persistence, and third-party mocks remain placeholders.

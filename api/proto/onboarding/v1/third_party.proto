@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package onboarding.v1;
+
+import "onboarding/v1/application.proto";
+
+option go_package = "github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/gen/onboarding/v1;onboardingv1";
+
+// ----------------------
+// API 4: VerifyIdentity
+// ----------------------
+message VerifyIdentityRequest {
+  IdentityInfo identity = 1;
+}
+
+message VerifyIdentityResponse {
+  bool verified = 1;
+}
+
+// ----------------------
+// API 5: ScreenSanctions
+// ----------------------
+message ScreenSanctionsRequest {
+  IdentityInfo identity = 1;
+}
+
+message ScreenSanctionsResponse {
+  bool clear = 1;
+}
+
+// ----------------------
+// ThirdPartyService
+// ----------------------
+service ThirdPartyService {
+  rpc VerifyIdentity(VerifyIdentityRequest) returns (VerifyIdentityResponse);
+
+  rpc ScreenSanctions(ScreenSanctionsRequest) returns (ScreenSanctionsResponse);
+}
