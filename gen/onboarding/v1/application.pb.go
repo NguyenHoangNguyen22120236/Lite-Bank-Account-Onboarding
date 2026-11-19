@@ -30,23 +30,29 @@ const (
 	ApplicationStatus_APPLICATION_STATUS_PENDING_IDENTITY_VERIFICATION ApplicationStatus = 3
 	ApplicationStatus_APPLICATION_STATUS_PENDING_SANCTIONS_SCREENING   ApplicationStatus = 4
 	ApplicationStatus_APPLICATION_STATUS_PENDING_HUMAN_REVIEW          ApplicationStatus = 5
-	ApplicationStatus_APPLICATION_STATUS_PENDING_APPROVED              ApplicationStatus = 6
-	ApplicationStatus_APPLICATION_STATUS_PENDING_REJECTED              ApplicationStatus = 7
-	ApplicationStatus_APPLICATION_STATUS_PENDING_COMPLETED             ApplicationStatus = 8
+	ApplicationStatus_APPLICATION_STATUS_APPROVED                      ApplicationStatus = 6
+	ApplicationStatus_APPLICATION_STATUS_REJECTED                      ApplicationStatus = 7
+	ApplicationStatus_APPLICATION_STATUS_COMPLETED                     ApplicationStatus = 8
+	ApplicationStatus_APPLICATION_STATUS_PENDING_WORKFLOW_START        ApplicationStatus = 9
+	ApplicationStatus_APPLICATION_STATUS_PENDING_ACCOUNT_CREATION      ApplicationStatus = 10
+	ApplicationStatus_APPLICATION_STATUS_FAILED_TECHNICAL              ApplicationStatus = 11
 )
 
 // Enum value maps for ApplicationStatus.
 var (
 	ApplicationStatus_name = map[int32]string{
-		0: "APPLICATION_STATUS_UNSPECIFIED",
-		1: "APPLICATION_STATUS_PENDING_TERMS_ACCEPTANCE",
-		2: "APPLICATION_STATUS_PENDING_IDENTITY_SUBMISSION",
-		3: "APPLICATION_STATUS_PENDING_IDENTITY_VERIFICATION",
-		4: "APPLICATION_STATUS_PENDING_SANCTIONS_SCREENING",
-		5: "APPLICATION_STATUS_PENDING_HUMAN_REVIEW",
-		6: "APPLICATION_STATUS_PENDING_APPROVED",
-		7: "APPLICATION_STATUS_PENDING_REJECTED",
-		8: "APPLICATION_STATUS_PENDING_COMPLETED",
+		0:  "APPLICATION_STATUS_UNSPECIFIED",
+		1:  "APPLICATION_STATUS_PENDING_TERMS_ACCEPTANCE",
+		2:  "APPLICATION_STATUS_PENDING_IDENTITY_SUBMISSION",
+		3:  "APPLICATION_STATUS_PENDING_IDENTITY_VERIFICATION",
+		4:  "APPLICATION_STATUS_PENDING_SANCTIONS_SCREENING",
+		5:  "APPLICATION_STATUS_PENDING_HUMAN_REVIEW",
+		6:  "APPLICATION_STATUS_APPROVED",
+		7:  "APPLICATION_STATUS_REJECTED",
+		8:  "APPLICATION_STATUS_COMPLETED",
+		9:  "APPLICATION_STATUS_PENDING_WORKFLOW_START",
+		10: "APPLICATION_STATUS_PENDING_ACCOUNT_CREATION",
+		11: "APPLICATION_STATUS_FAILED_TECHNICAL",
 	}
 	ApplicationStatus_value = map[string]int32{
 		"APPLICATION_STATUS_UNSPECIFIED":                   0,
@@ -55,9 +61,12 @@ var (
 		"APPLICATION_STATUS_PENDING_IDENTITY_VERIFICATION": 3,
 		"APPLICATION_STATUS_PENDING_SANCTIONS_SCREENING":   4,
 		"APPLICATION_STATUS_PENDING_HUMAN_REVIEW":          5,
-		"APPLICATION_STATUS_PENDING_APPROVED":              6,
-		"APPLICATION_STATUS_PENDING_REJECTED":              7,
-		"APPLICATION_STATUS_PENDING_COMPLETED":             8,
+		"APPLICATION_STATUS_APPROVED":                      6,
+		"APPLICATION_STATUS_REJECTED":                      7,
+		"APPLICATION_STATUS_COMPLETED":                     8,
+		"APPLICATION_STATUS_PENDING_WORKFLOW_START":        9,
+		"APPLICATION_STATUS_PENDING_ACCOUNT_CREATION":      10,
+		"APPLICATION_STATUS_FAILED_TECHNICAL":              11,
 	}
 )
 
@@ -138,6 +147,55 @@ func (x HumanReviewDecision) Number() protoreflect.EnumNumber {
 // Deprecated: Use HumanReviewDecision.Descriptor instead.
 func (HumanReviewDecision) EnumDescriptor() ([]byte, []int) {
 	return file_onboarding_v1_application_proto_rawDescGZIP(), []int{1}
+}
+
+type RejectedAtStep int32
+
+const (
+	RejectedAtStep_REJECTED_AT_STEP_UNSPECIFIED           RejectedAtStep = 0
+	RejectedAtStep_REJECTED_AT_STEP_IDENTITY_VERIFICATION RejectedAtStep = 1
+	RejectedAtStep_REJECTED_AT_STEP_HUMAN_REVIEW          RejectedAtStep = 2
+)
+
+// Enum value maps for RejectedAtStep.
+var (
+	RejectedAtStep_name = map[int32]string{
+		0: "REJECTED_AT_STEP_UNSPECIFIED",
+		1: "REJECTED_AT_STEP_IDENTITY_VERIFICATION",
+		2: "REJECTED_AT_STEP_HUMAN_REVIEW",
+	}
+	RejectedAtStep_value = map[string]int32{
+		"REJECTED_AT_STEP_UNSPECIFIED":           0,
+		"REJECTED_AT_STEP_IDENTITY_VERIFICATION": 1,
+		"REJECTED_AT_STEP_HUMAN_REVIEW":          2,
+	}
+)
+
+func (x RejectedAtStep) Enum() *RejectedAtStep {
+	p := new(RejectedAtStep)
+	*p = x
+	return p
+}
+
+func (x RejectedAtStep) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (RejectedAtStep) Descriptor() protoreflect.EnumDescriptor {
+	return file_onboarding_v1_application_proto_enumTypes[2].Descriptor()
+}
+
+func (RejectedAtStep) Type() protoreflect.EnumType {
+	return &file_onboarding_v1_application_proto_enumTypes[2]
+}
+
+func (x RejectedAtStep) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use RejectedAtStep.Descriptor instead.
+func (RejectedAtStep) EnumDescriptor() ([]byte, []int) {
+	return file_onboarding_v1_application_proto_rawDescGZIP(), []int{2}
 }
 
 type IdentityInfo struct {
@@ -228,7 +286,9 @@ func (x *IdentityInfo) GetEmail() string {
 // API 1: StartApplication
 // ----------------------
 type StartApplicationRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Client-generated UUID, reused for retries.
+	RequestId     string `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -263,9 +323,17 @@ func (*StartApplicationRequest) Descriptor() ([]byte, []int) {
 	return file_onboarding_v1_application_proto_rawDescGZIP(), []int{1}
 }
 
+func (x *StartApplicationRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
 type StartApplicationResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ApplicationId string                 `protobuf:"bytes,1,opt,name=application_id,json=applicationId,proto3" json:"application_id,omitempty"`
+	Status        ApplicationStatus      `protobuf:"varint,2,opt,name=status,proto3,enum=onboarding.v1.ApplicationStatus" json:"status,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -305,6 +373,13 @@ func (x *StartApplicationResponse) GetApplicationId() string {
 		return x.ApplicationId
 	}
 	return ""
+}
+
+func (x *StartApplicationResponse) GetStatus() ApplicationStatus {
+	if x != nil {
+		return x.Status
+	}
+	return ApplicationStatus_APPLICATION_STATUS_UNSPECIFIED
 }
 
 // ----------------------
@@ -517,12 +592,13 @@ func (x *SubmitIdentityResponse) GetStatus() ApplicationStatus {
 // API 7: ReviewApplication
 // ----------------------
 type ReviewApplicationRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ApplicationId string                 `protobuf:"bytes,1,opt,name=application_id,json=applicationId,proto3" json:"application_id,omitempty"`
-	Decision      HumanReviewDecision    `protobuf:"varint,2,opt,name=decision,proto3,enum=onboarding.v1.HumanReviewDecision" json:"decision,omitempty"`
-	Reason        *string                `protobuf:"bytes,3,opt,name=reason,proto3,oneof" json:"reason,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	ApplicationId   string                 `protobuf:"bytes,1,opt,name=application_id,json=applicationId,proto3" json:"application_id,omitempty"`
+	Decision        HumanReviewDecision    `protobuf:"varint,2,opt,name=decision,proto3,enum=onboarding.v1.HumanReviewDecision" json:"decision,omitempty"`
+	Reason          *string                `protobuf:"bytes,3,opt,name=reason,proto3,oneof" json:"reason,omitempty"`
+	ReviewRequestId string                 `protobuf:"bytes,4,opt,name=review_request_id,json=reviewRequestId,proto3" json:"review_request_id,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ReviewApplicationRequest) Reset() {
@@ -576,12 +652,20 @@ func (x *ReviewApplicationRequest) GetReason() string {
 	return ""
 }
 
+func (x *ReviewApplicationRequest) GetReviewRequestId() string {
+	if x != nil {
+		return x.ReviewRequestId
+	}
+	return ""
+}
+
 type ReviewApplicationResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ApplicationId string                 `protobuf:"bytes,1,opt,name=application_id,json=applicationId,proto3" json:"application_id,omitempty"`
-	Status        ApplicationStatus      `protobuf:"varint,2,opt,name=status,proto3,enum=onboarding.v1.ApplicationStatus" json:"status,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	ApplicationId    string                 `protobuf:"bytes,1,opt,name=application_id,json=applicationId,proto3" json:"application_id,omitempty"`
+	DecisionAccepted bool                   `protobuf:"varint,2,opt,name=decision_accepted,json=decisionAccepted,proto3" json:"decision_accepted,omitempty"`
+	Status           ApplicationStatus      `protobuf:"varint,3,opt,name=status,proto3,enum=onboarding.v1.ApplicationStatus" json:"status,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *ReviewApplicationResponse) Reset() {
@@ -619,6 +703,13 @@ func (x *ReviewApplicationResponse) GetApplicationId() string {
 		return x.ApplicationId
 	}
 	return ""
+}
+
+func (x *ReviewApplicationResponse) GetDecisionAccepted() bool {
+	if x != nil {
+		return x.DecisionAccepted
+	}
+	return false
 }
 
 func (x *ReviewApplicationResponse) GetStatus() ApplicationStatus {
@@ -676,12 +767,13 @@ func (x *GetApplicationRequest) GetApplicationId() string {
 }
 
 type GetApplicationResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ApplicationId string                 `protobuf:"bytes,1,opt,name=application_id,json=applicationId,proto3" json:"application_id,omitempty"`
-	Status        ApplicationStatus      `protobuf:"varint,2,opt,name=status,proto3,enum=onboarding.v1.ApplicationStatus" json:"status,omitempty"`
-	AccountNumber *string                `protobuf:"bytes,3,opt,name=account_number,json=accountNumber,proto3,oneof" json:"account_number,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	ApplicationId  string                 `protobuf:"bytes,1,opt,name=application_id,json=applicationId,proto3" json:"application_id,omitempty"`
+	Status         ApplicationStatus      `protobuf:"varint,2,opt,name=status,proto3,enum=onboarding.v1.ApplicationStatus" json:"status,omitempty"`
+	AccountNumber  *string                `protobuf:"bytes,3,opt,name=account_number,json=accountNumber,proto3,oneof" json:"account_number,omitempty"`
+	RejectedAtStep *RejectedAtStep        `protobuf:"varint,4,opt,name=rejected_at_step,json=rejectedAtStep,proto3,enum=onboarding.v1.RejectedAtStep,oneof" json:"rejected_at_step,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *GetApplicationResponse) Reset() {
@@ -735,6 +827,13 @@ func (x *GetApplicationResponse) GetAccountNumber() string {
 	return ""
 }
 
+func (x *GetApplicationResponse) GetRejectedAtStep() RejectedAtStep {
+	if x != nil && x.RejectedAtStep != nil {
+		return *x.RejectedAtStep
+	}
+	return RejectedAtStep_REJECTED_AT_STEP_UNSPECIFIED
+}
+
 var File_onboarding_v1_application_proto protoreflect.FileDescriptor
 
 const file_onboarding_v1_application_proto_rawDesc = "" +
@@ -747,10 +846,13 @@ const file_onboarding_v1_application_proto_rawDesc = "" +
 	"\x0eid_expiry_date\x18\x04 \x01(\tR\fidExpiryDate\x12!\n" +
 	"\fphone_number\x18\x05 \x01(\tR\vphoneNumber\x12\x19\n" +
 	"\x05email\x18\x06 \x01(\tH\x00R\x05email\x88\x01\x01B\b\n" +
-	"\x06_email\"\x19\n" +
-	"\x17StartApplicationRequest\"A\n" +
+	"\x06_email\"8\n" +
+	"\x17StartApplicationRequest\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\"{\n" +
 	"\x18StartApplicationResponse\x12%\n" +
-	"\x0eapplication_id\x18\x01 \x01(\tR\rapplicationId\"T\n" +
+	"\x0eapplication_id\x18\x01 \x01(\tR\rapplicationId\x128\n" +
+	"\x06status\x18\x02 \x01(\x0e2 .onboarding.v1.ApplicationStatusR\x06status\"T\n" +
 	"\x12AcceptTermsRequest\x12%\n" +
 	"\x0eapplication_id\x18\x01 \x01(\tR\rapplicationId\x12\x17\n" +
 	"\aterm_id\x18\x02 \x01(\tR\x06termId\"1\n" +
@@ -761,37 +863,49 @@ const file_onboarding_v1_application_proto_rawDesc = "" +
 	"\bidentity\x18\x02 \x01(\v2\x1b.onboarding.v1.IdentityInfoR\bidentity\"y\n" +
 	"\x16SubmitIdentityResponse\x12%\n" +
 	"\x0eapplication_id\x18\x01 \x01(\tR\rapplicationId\x128\n" +
-	"\x06status\x18\x02 \x01(\x0e2 .onboarding.v1.ApplicationStatusR\x06status\"\xa9\x01\n" +
+	"\x06status\x18\x02 \x01(\x0e2 .onboarding.v1.ApplicationStatusR\x06status\"\xd5\x01\n" +
 	"\x18ReviewApplicationRequest\x12%\n" +
 	"\x0eapplication_id\x18\x01 \x01(\tR\rapplicationId\x12>\n" +
 	"\bdecision\x18\x02 \x01(\x0e2\".onboarding.v1.HumanReviewDecisionR\bdecision\x12\x1b\n" +
-	"\x06reason\x18\x03 \x01(\tH\x00R\x06reason\x88\x01\x01B\t\n" +
-	"\a_reason\"|\n" +
+	"\x06reason\x18\x03 \x01(\tH\x00R\x06reason\x88\x01\x01\x12*\n" +
+	"\x11review_request_id\x18\x04 \x01(\tR\x0freviewRequestIdB\t\n" +
+	"\a_reason\"\xa9\x01\n" +
 	"\x19ReviewApplicationResponse\x12%\n" +
-	"\x0eapplication_id\x18\x01 \x01(\tR\rapplicationId\x128\n" +
-	"\x06status\x18\x02 \x01(\x0e2 .onboarding.v1.ApplicationStatusR\x06status\">\n" +
+	"\x0eapplication_id\x18\x01 \x01(\tR\rapplicationId\x12+\n" +
+	"\x11decision_accepted\x18\x02 \x01(\bR\x10decisionAccepted\x128\n" +
+	"\x06status\x18\x03 \x01(\x0e2 .onboarding.v1.ApplicationStatusR\x06status\">\n" +
 	"\x15GetApplicationRequest\x12%\n" +
-	"\x0eapplication_id\x18\x01 \x01(\tR\rapplicationId\"\xb8\x01\n" +
+	"\x0eapplication_id\x18\x01 \x01(\tR\rapplicationId\"\x9b\x02\n" +
 	"\x16GetApplicationResponse\x12%\n" +
 	"\x0eapplication_id\x18\x01 \x01(\tR\rapplicationId\x128\n" +
 	"\x06status\x18\x02 \x01(\x0e2 .onboarding.v1.ApplicationStatusR\x06status\x12*\n" +
-	"\x0eaccount_number\x18\x03 \x01(\tH\x00R\raccountNumber\x88\x01\x01B\x11\n" +
-	"\x0f_account_number*\xaf\x03\n" +
+	"\x0eaccount_number\x18\x03 \x01(\tH\x00R\raccountNumber\x88\x01\x01\x12L\n" +
+	"\x10rejected_at_step\x18\x04 \x01(\x0e2\x1d.onboarding.v1.RejectedAtStepH\x01R\x0erejectedAtStep\x88\x01\x01B\x11\n" +
+	"\x0f_account_numberB\x13\n" +
+	"\x11_rejected_at_step*\xa0\x04\n" +
 	"\x11ApplicationStatus\x12\"\n" +
 	"\x1eAPPLICATION_STATUS_UNSPECIFIED\x10\x00\x12/\n" +
 	"+APPLICATION_STATUS_PENDING_TERMS_ACCEPTANCE\x10\x01\x122\n" +
 	".APPLICATION_STATUS_PENDING_IDENTITY_SUBMISSION\x10\x02\x124\n" +
 	"0APPLICATION_STATUS_PENDING_IDENTITY_VERIFICATION\x10\x03\x122\n" +
 	".APPLICATION_STATUS_PENDING_SANCTIONS_SCREENING\x10\x04\x12+\n" +
-	"'APPLICATION_STATUS_PENDING_HUMAN_REVIEW\x10\x05\x12'\n" +
-	"#APPLICATION_STATUS_PENDING_APPROVED\x10\x06\x12'\n" +
-	"#APPLICATION_STATUS_PENDING_REJECTED\x10\a\x12(\n" +
-	"$APPLICATION_STATUS_PENDING_COMPLETED\x10\b*\xa7\x01\n" +
+	"'APPLICATION_STATUS_PENDING_HUMAN_REVIEW\x10\x05\x12\x1f\n" +
+	"\x1bAPPLICATION_STATUS_APPROVED\x10\x06\x12\x1f\n" +
+	"\x1bAPPLICATION_STATUS_REJECTED\x10\a\x12 \n" +
+	"\x1cAPPLICATION_STATUS_COMPLETED\x10\b\x12-\n" +
+	")APPLICATION_STATUS_PENDING_WORKFLOW_START\x10\t\x12/\n" +
+	"+APPLICATION_STATUS_PENDING_ACCOUNT_CREATION\x10\n" +
+	"\x12'\n" +
+	"#APPLICATION_STATUS_FAILED_TECHNICAL\x10\v*\xa7\x01\n" +
 	"\x13HumanReviewDecision\x12%\n" +
 	"!HUMAN_REVIEW_DECISION_UNSPECIFIED\x10\x00\x12!\n" +
 	"\x1dHUMAN_REVIEW_DECISION_PENDING\x10\x01\x12\"\n" +
 	"\x1eHUMAN_REVIEW_DECISION_APPROVED\x10\x02\x12\"\n" +
-	"\x1eHUMAN_REVIEW_DECISION_REJECTED\x10\x032\xf5\x03\n" +
+	"\x1eHUMAN_REVIEW_DECISION_REJECTED\x10\x03*\x81\x01\n" +
+	"\x0eRejectedAtStep\x12 \n" +
+	"\x1cREJECTED_AT_STEP_UNSPECIFIED\x10\x00\x12*\n" +
+	"&REJECTED_AT_STEP_IDENTITY_VERIFICATION\x10\x01\x12!\n" +
+	"\x1dREJECTED_AT_STEP_HUMAN_REVIEW\x10\x022\xf5\x03\n" +
 	"\x12ApplicationService\x12c\n" +
 	"\x10StartApplication\x12&.onboarding.v1.StartApplicationRequest\x1a'.onboarding.v1.StartApplicationResponse\x12T\n" +
 	"\vAcceptTerms\x12!.onboarding.v1.AcceptTermsRequest\x1a\".onboarding.v1.AcceptTermsResponse\x12]\n" +
@@ -811,44 +925,47 @@ func file_onboarding_v1_application_proto_rawDescGZIP() []byte {
 	return file_onboarding_v1_application_proto_rawDescData
 }
 
-var file_onboarding_v1_application_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_onboarding_v1_application_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
 var file_onboarding_v1_application_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_onboarding_v1_application_proto_goTypes = []any{
 	(ApplicationStatus)(0),            // 0: onboarding.v1.ApplicationStatus
 	(HumanReviewDecision)(0),          // 1: onboarding.v1.HumanReviewDecision
-	(*IdentityInfo)(nil),              // 2: onboarding.v1.IdentityInfo
-	(*StartApplicationRequest)(nil),   // 3: onboarding.v1.StartApplicationRequest
-	(*StartApplicationResponse)(nil),  // 4: onboarding.v1.StartApplicationResponse
-	(*AcceptTermsRequest)(nil),        // 5: onboarding.v1.AcceptTermsRequest
-	(*AcceptTermsResponse)(nil),       // 6: onboarding.v1.AcceptTermsResponse
-	(*SubmitIdentityRequest)(nil),     // 7: onboarding.v1.SubmitIdentityRequest
-	(*SubmitIdentityResponse)(nil),    // 8: onboarding.v1.SubmitIdentityResponse
-	(*ReviewApplicationRequest)(nil),  // 9: onboarding.v1.ReviewApplicationRequest
-	(*ReviewApplicationResponse)(nil), // 10: onboarding.v1.ReviewApplicationResponse
-	(*GetApplicationRequest)(nil),     // 11: onboarding.v1.GetApplicationRequest
-	(*GetApplicationResponse)(nil),    // 12: onboarding.v1.GetApplicationResponse
+	(RejectedAtStep)(0),               // 2: onboarding.v1.RejectedAtStep
+	(*IdentityInfo)(nil),              // 3: onboarding.v1.IdentityInfo
+	(*StartApplicationRequest)(nil),   // 4: onboarding.v1.StartApplicationRequest
+	(*StartApplicationResponse)(nil),  // 5: onboarding.v1.StartApplicationResponse
+	(*AcceptTermsRequest)(nil),        // 6: onboarding.v1.AcceptTermsRequest
+	(*AcceptTermsResponse)(nil),       // 7: onboarding.v1.AcceptTermsResponse
+	(*SubmitIdentityRequest)(nil),     // 8: onboarding.v1.SubmitIdentityRequest
+	(*SubmitIdentityResponse)(nil),    // 9: onboarding.v1.SubmitIdentityResponse
+	(*ReviewApplicationRequest)(nil),  // 10: onboarding.v1.ReviewApplicationRequest
+	(*ReviewApplicationResponse)(nil), // 11: onboarding.v1.ReviewApplicationResponse
+	(*GetApplicationRequest)(nil),     // 12: onboarding.v1.GetApplicationRequest
+	(*GetApplicationResponse)(nil),    // 13: onboarding.v1.GetApplicationResponse
 }
 var file_onboarding_v1_application_proto_depIdxs = []int32{
-	2,  // 0: onboarding.v1.SubmitIdentityRequest.identity:type_name -> onboarding.v1.IdentityInfo
-	0,  // 1: onboarding.v1.SubmitIdentityResponse.status:type_name -> onboarding.v1.ApplicationStatus
-	1,  // 2: onboarding.v1.ReviewApplicationRequest.decision:type_name -> onboarding.v1.HumanReviewDecision
-	0,  // 3: onboarding.v1.ReviewApplicationResponse.status:type_name -> onboarding.v1.ApplicationStatus
-	0,  // 4: onboarding.v1.GetApplicationResponse.status:type_name -> onboarding.v1.ApplicationStatus
-	3,  // 5: onboarding.v1.ApplicationService.StartApplication:input_type -> onboarding.v1.StartApplicationRequest
-	5,  // 6: onboarding.v1.ApplicationService.AcceptTerms:input_type -> onboarding.v1.AcceptTermsRequest
-	7,  // 7: onboarding.v1.ApplicationService.SubmitIdentity:input_type -> onboarding.v1.SubmitIdentityRequest
-	9,  // 8: onboarding.v1.ApplicationService.ReviewApplication:input_type -> onboarding.v1.ReviewApplicationRequest
-	11, // 9: onboarding.v1.ApplicationService.GetApplication:input_type -> onboarding.v1.GetApplicationRequest
-	4,  // 10: onboarding.v1.ApplicationService.StartApplication:output_type -> onboarding.v1.StartApplicationResponse
-	6,  // 11: onboarding.v1.ApplicationService.AcceptTerms:output_type -> onboarding.v1.AcceptTermsResponse
-	8,  // 12: onboarding.v1.ApplicationService.SubmitIdentity:output_type -> onboarding.v1.SubmitIdentityResponse
-	10, // 13: onboarding.v1.ApplicationService.ReviewApplication:output_type -> onboarding.v1.ReviewApplicationResponse
-	12, // 14: onboarding.v1.ApplicationService.GetApplication:output_type -> onboarding.v1.GetApplicationResponse
-	10, // [10:15] is the sub-list for method output_type
-	5,  // [5:10] is the sub-list for method input_type
-	5,  // [5:5] is the sub-list for extension type_name
-	5,  // [5:5] is the sub-list for extension extendee
-	0,  // [0:5] is the sub-list for field type_name
+	0,  // 0: onboarding.v1.StartApplicationResponse.status:type_name -> onboarding.v1.ApplicationStatus
+	3,  // 1: onboarding.v1.SubmitIdentityRequest.identity:type_name -> onboarding.v1.IdentityInfo
+	0,  // 2: onboarding.v1.SubmitIdentityResponse.status:type_name -> onboarding.v1.ApplicationStatus
+	1,  // 3: onboarding.v1.ReviewApplicationRequest.decision:type_name -> onboarding.v1.HumanReviewDecision
+	0,  // 4: onboarding.v1.ReviewApplicationResponse.status:type_name -> onboarding.v1.ApplicationStatus
+	0,  // 5: onboarding.v1.GetApplicationResponse.status:type_name -> onboarding.v1.ApplicationStatus
+	2,  // 6: onboarding.v1.GetApplicationResponse.rejected_at_step:type_name -> onboarding.v1.RejectedAtStep
+	4,  // 7: onboarding.v1.ApplicationService.StartApplication:input_type -> onboarding.v1.StartApplicationRequest
+	6,  // 8: onboarding.v1.ApplicationService.AcceptTerms:input_type -> onboarding.v1.AcceptTermsRequest
+	8,  // 9: onboarding.v1.ApplicationService.SubmitIdentity:input_type -> onboarding.v1.SubmitIdentityRequest
+	10, // 10: onboarding.v1.ApplicationService.ReviewApplication:input_type -> onboarding.v1.ReviewApplicationRequest
+	12, // 11: onboarding.v1.ApplicationService.GetApplication:input_type -> onboarding.v1.GetApplicationRequest
+	5,  // 12: onboarding.v1.ApplicationService.StartApplication:output_type -> onboarding.v1.StartApplicationResponse
+	7,  // 13: onboarding.v1.ApplicationService.AcceptTerms:output_type -> onboarding.v1.AcceptTermsResponse
+	9,  // 14: onboarding.v1.ApplicationService.SubmitIdentity:output_type -> onboarding.v1.SubmitIdentityResponse
+	11, // 15: onboarding.v1.ApplicationService.ReviewApplication:output_type -> onboarding.v1.ReviewApplicationResponse
+	13, // 16: onboarding.v1.ApplicationService.GetApplication:output_type -> onboarding.v1.GetApplicationResponse
+	12, // [12:17] is the sub-list for method output_type
+	7,  // [7:12] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_onboarding_v1_application_proto_init() }
@@ -864,7 +981,7 @@ func file_onboarding_v1_application_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_onboarding_v1_application_proto_rawDesc), len(file_onboarding_v1_application_proto_rawDesc)),
-			NumEnums:      2,
+			NumEnums:      3,
 			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   1,

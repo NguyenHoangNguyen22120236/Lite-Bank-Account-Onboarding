@@ -1,0 +1,24 @@
+
+syntax = "proto3";
+
+package onboarding.v1;
+
+option go_package = "github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/gen/onboarding/v1;onboardingv1";
+
+// ---------- API 6: CreateAccount ----------
+
+message CreateAccountRequest {
+  string application_id = 1;
+}
+
+message CreateAccountResponse {
+  string account_id     = 1;
+  string account_number = 2;
+}
+
+// ---------- AccountService ----------
+
+service AccountService {
+  rpc CreateAccount(CreateAccountRequest)
+  returns (CreateAccountResponse);
+}
