@@ -48,17 +48,19 @@ accepted: bool
 
 ```protobuf
 SubmitIdentityRequest {
-application_id: string
-identity: IdentityInfo
+  application_id: string
+  identity: IdentityInfo
 }
 ```
 
 #### Response
 
+```protobuf
 SubmitIdentityResponse {
-application_id: string
-status: ApplicationStatus
+  application_id: string
+  status: ApplicationStatus
 }
+```
 
 #### Example request
 
@@ -81,7 +83,7 @@ status: ApplicationStatus
 ```json
 {
   "application_id": "APP-001",
-  "status": "PENDING_VERIFICATION"
+  "status": "APPLICATION_STATUS_PENDING_WORKFLOW_START"
 }
 ```
 
@@ -129,6 +131,25 @@ ScreenSanctionsResponse {
 }
 ```
 
+### API 6 - AccountService
+
+#### Request
+
+```protobuf
+message CreateAccountRequest {
+  string application_id = 1;
+}
+```
+
+#### Response
+
+```protobuf
+message CreateAccountResponse {
+  string account_id = 1;
+  string account_number = 2;
+}
+```
+
 <br>
 
 ## Back Officer APIs
@@ -143,6 +164,9 @@ ScreenSanctionsResponse {
 ReviewApplicationRequest {
     application_id: string
     decision: ReviewDecision
+    optional reason: string
+    review_request_id: string
+    reviewer_id: string
 }
 ```
 
@@ -151,7 +175,7 @@ ReviewApplicationRequest {
 ```protobuf
 ReviewApplicationResponse {
     application_id: string
-    status: ApplicationStatus
+    decision_accepted: bool
 }
 ```
 
@@ -177,6 +201,7 @@ GetApplicationRequest {
 GetApplicationResponse {
   string application_id = 1;
   ApplicationStatus status = 2;
-  optional string account_number;
+  optional string account_number = 3;
+  optional RejectedAtStep rejected_at_step = 4;
 }
 ```
