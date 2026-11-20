@@ -834,6 +834,129 @@ func (x *GetApplicationResponse) GetRejectedAtStep() RejectedAtStep {
 	return RejectedAtStep_REJECTED_AT_STEP_UNSPECIFIED
 }
 
+// ----------------------
+// API 9: UpdateApplicationStatus
+// ----------------------
+type UpdateApplicationStatusRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	ApplicationId  string                 `protobuf:"bytes,1,opt,name=application_id,json=applicationId,proto3" json:"application_id,omitempty"`
+	ExpectedStatus ApplicationStatus      `protobuf:"varint,2,opt,name=expected_status,json=expectedStatus,proto3,enum=onboarding.v1.ApplicationStatus" json:"expected_status,omitempty"`
+	NewStatus      ApplicationStatus      `protobuf:"varint,3,opt,name=new_status,json=newStatus,proto3,enum=onboarding.v1.ApplicationStatus" json:"new_status,omitempty"`
+	RejectedAtStep *RejectedAtStep        `protobuf:"varint,4,opt,name=rejected_at_step,json=rejectedAtStep,proto3,enum=onboarding.v1.RejectedAtStep,oneof" json:"rejected_at_step,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *UpdateApplicationStatusRequest) Reset() {
+	*x = UpdateApplicationStatusRequest{}
+	mi := &file_onboarding_v1_application_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateApplicationStatusRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateApplicationStatusRequest) ProtoMessage() {}
+
+func (x *UpdateApplicationStatusRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_onboarding_v1_application_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateApplicationStatusRequest.ProtoReflect.Descriptor instead.
+func (*UpdateApplicationStatusRequest) Descriptor() ([]byte, []int) {
+	return file_onboarding_v1_application_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *UpdateApplicationStatusRequest) GetApplicationId() string {
+	if x != nil {
+		return x.ApplicationId
+	}
+	return ""
+}
+
+func (x *UpdateApplicationStatusRequest) GetExpectedStatus() ApplicationStatus {
+	if x != nil {
+		return x.ExpectedStatus
+	}
+	return ApplicationStatus_APPLICATION_STATUS_UNSPECIFIED
+}
+
+func (x *UpdateApplicationStatusRequest) GetNewStatus() ApplicationStatus {
+	if x != nil {
+		return x.NewStatus
+	}
+	return ApplicationStatus_APPLICATION_STATUS_UNSPECIFIED
+}
+
+func (x *UpdateApplicationStatusRequest) GetRejectedAtStep() RejectedAtStep {
+	if x != nil && x.RejectedAtStep != nil {
+		return *x.RejectedAtStep
+	}
+	return RejectedAtStep_REJECTED_AT_STEP_UNSPECIFIED
+}
+
+type UpdateApplicationStatusResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ApplicationId string                 `protobuf:"bytes,1,opt,name=application_id,json=applicationId,proto3" json:"application_id,omitempty"`
+	Status        ApplicationStatus      `protobuf:"varint,2,opt,name=status,proto3,enum=onboarding.v1.ApplicationStatus" json:"status,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateApplicationStatusResponse) Reset() {
+	*x = UpdateApplicationStatusResponse{}
+	mi := &file_onboarding_v1_application_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateApplicationStatusResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateApplicationStatusResponse) ProtoMessage() {}
+
+func (x *UpdateApplicationStatusResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_onboarding_v1_application_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateApplicationStatusResponse.ProtoReflect.Descriptor instead.
+func (*UpdateApplicationStatusResponse) Descriptor() ([]byte, []int) {
+	return file_onboarding_v1_application_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *UpdateApplicationStatusResponse) GetApplicationId() string {
+	if x != nil {
+		return x.ApplicationId
+	}
+	return ""
+}
+
+func (x *UpdateApplicationStatusResponse) GetStatus() ApplicationStatus {
+	if x != nil {
+		return x.Status
+	}
+	return ApplicationStatus_APPLICATION_STATUS_UNSPECIFIED
+}
+
 var File_onboarding_v1_application_proto protoreflect.FileDescriptor
 
 const file_onboarding_v1_application_proto_rawDesc = "" +
@@ -882,7 +1005,17 @@ const file_onboarding_v1_application_proto_rawDesc = "" +
 	"\x0eaccount_number\x18\x03 \x01(\tH\x00R\raccountNumber\x88\x01\x01\x12L\n" +
 	"\x10rejected_at_step\x18\x04 \x01(\x0e2\x1d.onboarding.v1.RejectedAtStepH\x01R\x0erejectedAtStep\x88\x01\x01B\x11\n" +
 	"\x0f_account_numberB\x13\n" +
-	"\x11_rejected_at_step*\xa0\x04\n" +
+	"\x11_rejected_at_step\"\xb6\x02\n" +
+	"\x1eUpdateApplicationStatusRequest\x12%\n" +
+	"\x0eapplication_id\x18\x01 \x01(\tR\rapplicationId\x12I\n" +
+	"\x0fexpected_status\x18\x02 \x01(\x0e2 .onboarding.v1.ApplicationStatusR\x0eexpectedStatus\x12?\n" +
+	"\n" +
+	"new_status\x18\x03 \x01(\x0e2 .onboarding.v1.ApplicationStatusR\tnewStatus\x12L\n" +
+	"\x10rejected_at_step\x18\x04 \x01(\x0e2\x1d.onboarding.v1.RejectedAtStepH\x00R\x0erejectedAtStep\x88\x01\x01B\x13\n" +
+	"\x11_rejected_at_step\"\x82\x01\n" +
+	"\x1fUpdateApplicationStatusResponse\x12%\n" +
+	"\x0eapplication_id\x18\x01 \x01(\tR\rapplicationId\x128\n" +
+	"\x06status\x18\x02 \x01(\x0e2 .onboarding.v1.ApplicationStatusR\x06status*\xa0\x04\n" +
 	"\x11ApplicationStatus\x12\"\n" +
 	"\x1eAPPLICATION_STATUS_UNSPECIFIED\x10\x00\x12/\n" +
 	"+APPLICATION_STATUS_PENDING_TERMS_ACCEPTANCE\x10\x01\x122\n" +
@@ -905,13 +1038,14 @@ const file_onboarding_v1_application_proto_rawDesc = "" +
 	"\x0eRejectedAtStep\x12 \n" +
 	"\x1cREJECTED_AT_STEP_UNSPECIFIED\x10\x00\x12*\n" +
 	"&REJECTED_AT_STEP_IDENTITY_VERIFICATION\x10\x01\x12!\n" +
-	"\x1dREJECTED_AT_STEP_HUMAN_REVIEW\x10\x022\xf5\x03\n" +
+	"\x1dREJECTED_AT_STEP_HUMAN_REVIEW\x10\x022\xef\x04\n" +
 	"\x12ApplicationService\x12c\n" +
 	"\x10StartApplication\x12&.onboarding.v1.StartApplicationRequest\x1a'.onboarding.v1.StartApplicationResponse\x12T\n" +
 	"\vAcceptTerms\x12!.onboarding.v1.AcceptTermsRequest\x1a\".onboarding.v1.AcceptTermsResponse\x12]\n" +
 	"\x0eSubmitIdentity\x12$.onboarding.v1.SubmitIdentityRequest\x1a%.onboarding.v1.SubmitIdentityResponse\x12f\n" +
 	"\x11ReviewApplication\x12'.onboarding.v1.ReviewApplicationRequest\x1a(.onboarding.v1.ReviewApplicationResponse\x12]\n" +
-	"\x0eGetApplication\x12$.onboarding.v1.GetApplicationRequest\x1a%.onboarding.v1.GetApplicationResponseBbZ`github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/gen/onboarding/v1;onboardingv1b\x06proto3"
+	"\x0eGetApplication\x12$.onboarding.v1.GetApplicationRequest\x1a%.onboarding.v1.GetApplicationResponse\x12x\n" +
+	"\x17UpdateApplicationStatus\x12-.onboarding.v1.UpdateApplicationStatusRequest\x1a..onboarding.v1.UpdateApplicationStatusResponseBbZ`github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/gen/onboarding/v1;onboardingv1b\x06proto3"
 
 var (
 	file_onboarding_v1_application_proto_rawDescOnce sync.Once
@@ -926,22 +1060,24 @@ func file_onboarding_v1_application_proto_rawDescGZIP() []byte {
 }
 
 var file_onboarding_v1_application_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_onboarding_v1_application_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_onboarding_v1_application_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_onboarding_v1_application_proto_goTypes = []any{
-	(ApplicationStatus)(0),            // 0: onboarding.v1.ApplicationStatus
-	(HumanReviewDecision)(0),          // 1: onboarding.v1.HumanReviewDecision
-	(RejectedAtStep)(0),               // 2: onboarding.v1.RejectedAtStep
-	(*IdentityInfo)(nil),              // 3: onboarding.v1.IdentityInfo
-	(*StartApplicationRequest)(nil),   // 4: onboarding.v1.StartApplicationRequest
-	(*StartApplicationResponse)(nil),  // 5: onboarding.v1.StartApplicationResponse
-	(*AcceptTermsRequest)(nil),        // 6: onboarding.v1.AcceptTermsRequest
-	(*AcceptTermsResponse)(nil),       // 7: onboarding.v1.AcceptTermsResponse
-	(*SubmitIdentityRequest)(nil),     // 8: onboarding.v1.SubmitIdentityRequest
-	(*SubmitIdentityResponse)(nil),    // 9: onboarding.v1.SubmitIdentityResponse
-	(*ReviewApplicationRequest)(nil),  // 10: onboarding.v1.ReviewApplicationRequest
-	(*ReviewApplicationResponse)(nil), // 11: onboarding.v1.ReviewApplicationResponse
-	(*GetApplicationRequest)(nil),     // 12: onboarding.v1.GetApplicationRequest
-	(*GetApplicationResponse)(nil),    // 13: onboarding.v1.GetApplicationResponse
+	(ApplicationStatus)(0),                  // 0: onboarding.v1.ApplicationStatus
+	(HumanReviewDecision)(0),                // 1: onboarding.v1.HumanReviewDecision
+	(RejectedAtStep)(0),                     // 2: onboarding.v1.RejectedAtStep
+	(*IdentityInfo)(nil),                    // 3: onboarding.v1.IdentityInfo
+	(*StartApplicationRequest)(nil),         // 4: onboarding.v1.StartApplicationRequest
+	(*StartApplicationResponse)(nil),        // 5: onboarding.v1.StartApplicationResponse
+	(*AcceptTermsRequest)(nil),              // 6: onboarding.v1.AcceptTermsRequest
+	(*AcceptTermsResponse)(nil),             // 7: onboarding.v1.AcceptTermsResponse
+	(*SubmitIdentityRequest)(nil),           // 8: onboarding.v1.SubmitIdentityRequest
+	(*SubmitIdentityResponse)(nil),          // 9: onboarding.v1.SubmitIdentityResponse
+	(*ReviewApplicationRequest)(nil),        // 10: onboarding.v1.ReviewApplicationRequest
+	(*ReviewApplicationResponse)(nil),       // 11: onboarding.v1.ReviewApplicationResponse
+	(*GetApplicationRequest)(nil),           // 12: onboarding.v1.GetApplicationRequest
+	(*GetApplicationResponse)(nil),          // 13: onboarding.v1.GetApplicationResponse
+	(*UpdateApplicationStatusRequest)(nil),  // 14: onboarding.v1.UpdateApplicationStatusRequest
+	(*UpdateApplicationStatusResponse)(nil), // 15: onboarding.v1.UpdateApplicationStatusResponse
 }
 var file_onboarding_v1_application_proto_depIdxs = []int32{
 	0,  // 0: onboarding.v1.StartApplicationResponse.status:type_name -> onboarding.v1.ApplicationStatus
@@ -951,21 +1087,27 @@ var file_onboarding_v1_application_proto_depIdxs = []int32{
 	0,  // 4: onboarding.v1.ReviewApplicationResponse.status:type_name -> onboarding.v1.ApplicationStatus
 	0,  // 5: onboarding.v1.GetApplicationResponse.status:type_name -> onboarding.v1.ApplicationStatus
 	2,  // 6: onboarding.v1.GetApplicationResponse.rejected_at_step:type_name -> onboarding.v1.RejectedAtStep
-	4,  // 7: onboarding.v1.ApplicationService.StartApplication:input_type -> onboarding.v1.StartApplicationRequest
-	6,  // 8: onboarding.v1.ApplicationService.AcceptTerms:input_type -> onboarding.v1.AcceptTermsRequest
-	8,  // 9: onboarding.v1.ApplicationService.SubmitIdentity:input_type -> onboarding.v1.SubmitIdentityRequest
-	10, // 10: onboarding.v1.ApplicationService.ReviewApplication:input_type -> onboarding.v1.ReviewApplicationRequest
-	12, // 11: onboarding.v1.ApplicationService.GetApplication:input_type -> onboarding.v1.GetApplicationRequest
-	5,  // 12: onboarding.v1.ApplicationService.StartApplication:output_type -> onboarding.v1.StartApplicationResponse
-	7,  // 13: onboarding.v1.ApplicationService.AcceptTerms:output_type -> onboarding.v1.AcceptTermsResponse
-	9,  // 14: onboarding.v1.ApplicationService.SubmitIdentity:output_type -> onboarding.v1.SubmitIdentityResponse
-	11, // 15: onboarding.v1.ApplicationService.ReviewApplication:output_type -> onboarding.v1.ReviewApplicationResponse
-	13, // 16: onboarding.v1.ApplicationService.GetApplication:output_type -> onboarding.v1.GetApplicationResponse
-	12, // [12:17] is the sub-list for method output_type
-	7,  // [7:12] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	0,  // 7: onboarding.v1.UpdateApplicationStatusRequest.expected_status:type_name -> onboarding.v1.ApplicationStatus
+	0,  // 8: onboarding.v1.UpdateApplicationStatusRequest.new_status:type_name -> onboarding.v1.ApplicationStatus
+	2,  // 9: onboarding.v1.UpdateApplicationStatusRequest.rejected_at_step:type_name -> onboarding.v1.RejectedAtStep
+	0,  // 10: onboarding.v1.UpdateApplicationStatusResponse.status:type_name -> onboarding.v1.ApplicationStatus
+	4,  // 11: onboarding.v1.ApplicationService.StartApplication:input_type -> onboarding.v1.StartApplicationRequest
+	6,  // 12: onboarding.v1.ApplicationService.AcceptTerms:input_type -> onboarding.v1.AcceptTermsRequest
+	8,  // 13: onboarding.v1.ApplicationService.SubmitIdentity:input_type -> onboarding.v1.SubmitIdentityRequest
+	10, // 14: onboarding.v1.ApplicationService.ReviewApplication:input_type -> onboarding.v1.ReviewApplicationRequest
+	12, // 15: onboarding.v1.ApplicationService.GetApplication:input_type -> onboarding.v1.GetApplicationRequest
+	14, // 16: onboarding.v1.ApplicationService.UpdateApplicationStatus:input_type -> onboarding.v1.UpdateApplicationStatusRequest
+	5,  // 17: onboarding.v1.ApplicationService.StartApplication:output_type -> onboarding.v1.StartApplicationResponse
+	7,  // 18: onboarding.v1.ApplicationService.AcceptTerms:output_type -> onboarding.v1.AcceptTermsResponse
+	9,  // 19: onboarding.v1.ApplicationService.SubmitIdentity:output_type -> onboarding.v1.SubmitIdentityResponse
+	11, // 20: onboarding.v1.ApplicationService.ReviewApplication:output_type -> onboarding.v1.ReviewApplicationResponse
+	13, // 21: onboarding.v1.ApplicationService.GetApplication:output_type -> onboarding.v1.GetApplicationResponse
+	15, // 22: onboarding.v1.ApplicationService.UpdateApplicationStatus:output_type -> onboarding.v1.UpdateApplicationStatusResponse
+	17, // [17:23] is the sub-list for method output_type
+	11, // [11:17] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_onboarding_v1_application_proto_init() }
@@ -976,13 +1118,14 @@ func file_onboarding_v1_application_proto_init() {
 	file_onboarding_v1_application_proto_msgTypes[0].OneofWrappers = []any{}
 	file_onboarding_v1_application_proto_msgTypes[7].OneofWrappers = []any{}
 	file_onboarding_v1_application_proto_msgTypes[10].OneofWrappers = []any{}
+	file_onboarding_v1_application_proto_msgTypes[11].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_onboarding_v1_application_proto_rawDesc), len(file_onboarding_v1_application_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   11,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.2.0] - 2026-11-20
+
+Scaffolding and development tooling update.
+
+### Added
+
+- Account domain, handler, service, repository interface, PostgreSQL repository, and test placeholders.
+- Onboarding workflow, review update, activities, and application, account, third-party, and SendGrid client placeholders.
+- Account and worker command placeholders and an application domain status placeholder.
+- Application PostgreSQL repository and test placeholders.
+- GitHub Actions CI for protobuf lint and generation consistency, Go formatting, static analysis, race-enabled tests, and builds.
+- Makefile targets for generation, verification, builds, local services, and Docker Compose commands.
+- AGENTS.md with project engineering and human review instructions.
+
+### Implementation Status
+
+- Account and worker commands have no `main` functions and cannot yet build as executables.
+- New business logic, persistence, workflows, activities, clients, and tests are placeholders.
+- Temporal and PostgreSQL dependencies, database migrations, and Docker Compose configuration are not yet included.
+- Existing application and third-party servers continue to register unimplemented RPC handlers.
+
 ## [0.1.0] - 2026-11-14
 
 Initial scaffold release.

@@ -110,6 +110,21 @@ message GetApplicationResponse {
 }
 
 // ----------------------
+// API 9: UpdateApplicationStatus
+// ----------------------
+message UpdateApplicationStatusRequest {
+  string                  application_id   = 1;
+  ApplicationStatus       expected_status  = 2;
+  ApplicationStatus       new_status       = 3;
+  optional RejectedAtStep rejected_at_step = 4;
+}
+
+message UpdateApplicationStatusResponse {
+  string            application_id = 1;
+  ApplicationStatus status         = 2;
+}
+
+// ----------------------
 // ApplicationService
 // ----------------------
 service ApplicationService {
@@ -122,4 +137,6 @@ service ApplicationService {
   rpc ReviewApplication(ReviewApplicationRequest) returns (ReviewApplicationResponse);
 
   rpc GetApplication(GetApplicationRequest) returns (GetApplicationResponse);
+
+  rpc UpdateApplicationStatus(UpdateApplicationStatusRequest) returns (UpdateApplicationStatusResponse);
 }
