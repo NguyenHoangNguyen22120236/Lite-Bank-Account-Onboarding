@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.3.0] - 2026-11-20
+
+Local development infrastructure update.
+
+### Added
+
+- Docker Compose configuration for PostgreSQL (`postgres:17.12`) and Temporal Dev Server (`temporalio/temporal:1.10.1`).
+- Loopback-bound PostgreSQL, Temporal API, and Temporal Web UI ports, with health checks for both containers.
+- Named volumes for PostgreSQL data and Temporal's embedded SQLite database.
+- `.env.example` with local PostgreSQL settings and `.gitignore` excluding `.env`.
+
+### Changed
+
+- `make up` waits for container health checks with a 120-second timeout.
+- `make logs` follows logs starting with the last 100 lines.
+- README covers prerequisites, environment setup, infrastructure startup, verification, troubleshooting, and shutdown with persistent data.
+- VERSION advances to 0.3.0.
+
+### Implementation Status
+
+- Infrastructure configuration is provided; Go services do not yet connect to PostgreSQL or Temporal.
+- No application tables or database migrations are included.
+- Account and worker commands and business logic remain placeholders. Temporal Dev Server is for local development.
+
 ## [0.2.1] - 2026-11-20
 
 Documentation update for onboarding design references.
