@@ -48,6 +48,9 @@ const (
 	// ApplicationServiceGetApplicationProcedure is the fully-qualified name of the ApplicationService's
 	// GetApplication RPC.
 	ApplicationServiceGetApplicationProcedure = "/onboarding.v1.ApplicationService/GetApplication"
+	// ApplicationServiceUpdateApplicationStatusProcedure is the fully-qualified name of the
+	// ApplicationService's UpdateApplicationStatus RPC.
+	ApplicationServiceUpdateApplicationStatusProcedure = "/onboarding.v1.ApplicationService/UpdateApplicationStatus"
 )
 
 // ApplicationServiceClient is a client for the onboarding.v1.ApplicationService service.
@@ -57,6 +60,7 @@ type ApplicationServiceClient interface {
 	SubmitIdentity(context.Context, *connect.Request[v1.SubmitIdentityRequest]) (*connect.Response[v1.SubmitIdentityResponse], error)
 	ReviewApplication(context.Context, *connect.Request[v1.ReviewApplicationRequest]) (*connect.Response[v1.ReviewApplicationResponse], error)
 	GetApplication(context.Context, *connect.Request[v1.GetApplicationRequest]) (*connect.Response[v1.GetApplicationResponse], error)
+	UpdateApplicationStatus(context.Context, *connect.Request[v1.UpdateApplicationStatusRequest]) (*connect.Response[v1.UpdateApplicationStatusResponse], error)
 }
 
 // NewApplicationServiceClient constructs a client for the onboarding.v1.ApplicationService service.
@@ -100,16 +104,23 @@ func NewApplicationServiceClient(httpClient connect.HTTPClient, baseURL string, 
 			connect.WithSchema(applicationServiceMethods.ByName("GetApplication")),
 			connect.WithClientOptions(opts...),
 		),
+		updateApplicationStatus: connect.NewClient[v1.UpdateApplicationStatusRequest, v1.UpdateApplicationStatusResponse](
+			httpClient,
+			baseURL+ApplicationServiceUpdateApplicationStatusProcedure,
+			connect.WithSchema(applicationServiceMethods.ByName("UpdateApplicationStatus")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // applicationServiceClient implements ApplicationServiceClient.
 type applicationServiceClient struct {
-	startApplication  *connect.Client[v1.StartApplicationRequest, v1.StartApplicationResponse]
-	acceptTerms       *connect.Client[v1.AcceptTermsRequest, v1.AcceptTermsResponse]
-	submitIdentity    *connect.Client[v1.SubmitIdentityRequest, v1.SubmitIdentityResponse]
-	reviewApplication *connect.Client[v1.ReviewApplicationRequest, v1.ReviewApplicationResponse]
-	getApplication    *connect.Client[v1.GetApplicationRequest, v1.GetApplicationResponse]
+	startApplication        *connect.Client[v1.StartApplicationRequest, v1.StartApplicationResponse]
+	acceptTerms             *connect.Client[v1.AcceptTermsRequest, v1.AcceptTermsResponse]
+	submitIdentity          *connect.Client[v1.SubmitIdentityRequest, v1.SubmitIdentityResponse]
+	reviewApplication       *connect.Client[v1.ReviewApplicationRequest, v1.ReviewApplicationResponse]
+	getApplication          *connect.Client[v1.GetApplicationRequest, v1.GetApplicationResponse]
+	updateApplicationStatus *connect.Client[v1.UpdateApplicationStatusRequest, v1.UpdateApplicationStatusResponse]
 }
 
 // StartApplication calls onboarding.v1.ApplicationService.StartApplication.
@@ -137,6 +148,11 @@ func (c *applicationServiceClient) GetApplication(ctx context.Context, req *conn
 	return c.getApplication.CallUnary(ctx, req)
 }
 
+// UpdateApplicationStatus calls onboarding.v1.ApplicationService.UpdateApplicationStatus.
+func (c *applicationServiceClient) UpdateApplicationStatus(ctx context.Context, req *connect.Request[v1.UpdateApplicationStatusRequest]) (*connect.Response[v1.UpdateApplicationStatusResponse], error) {
+	return c.updateApplicationStatus.CallUnary(ctx, req)
+}
+
 // ApplicationServiceHandler is an implementation of the onboarding.v1.ApplicationService service.
 type ApplicationServiceHandler interface {
 	StartApplication(context.Context, *connect.Request[v1.StartApplicationRequest]) (*connect.Response[v1.StartApplicationResponse], error)
@@ -144,6 +160,7 @@ type ApplicationServiceHandler interface {
 	SubmitIdentity(context.Context, *connect.Request[v1.SubmitIdentityRequest]) (*connect.Response[v1.SubmitIdentityResponse], error)
 	ReviewApplication(context.Context, *connect.Request[v1.ReviewApplicationRequest]) (*connect.Response[v1.ReviewApplicationResponse], error)
 	GetApplication(context.Context, *connect.Request[v1.GetApplicationRequest]) (*connect.Response[v1.GetApplicationResponse], error)
+	UpdateApplicationStatus(context.Context, *connect.Request[v1.UpdateApplicationStatusRequest]) (*connect.Response[v1.UpdateApplicationStatusResponse], error)
 }
 
 // NewApplicationServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -183,6 +200,12 @@ func NewApplicationServiceHandler(svc ApplicationServiceHandler, opts ...connect
 		connect.WithSchema(applicationServiceMethods.ByName("GetApplication")),
 		connect.WithHandlerOptions(opts...),
 	)
+	applicationServiceUpdateApplicationStatusHandler := connect.NewUnaryHandler(
+		ApplicationServiceUpdateApplicationStatusProcedure,
+		svc.UpdateApplicationStatus,
+		connect.WithSchema(applicationServiceMethods.ByName("UpdateApplicationStatus")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/onboarding.v1.ApplicationService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ApplicationServiceStartApplicationProcedure:
@@ -195,6 +218,8 @@ func NewApplicationServiceHandler(svc ApplicationServiceHandler, opts ...connect
 			applicationServiceReviewApplicationHandler.ServeHTTP(w, r)
 		case ApplicationServiceGetApplicationProcedure:
 			applicationServiceGetApplicationHandler.ServeHTTP(w, r)
+		case ApplicationServiceUpdateApplicationStatusProcedure:
+			applicationServiceUpdateApplicationStatusHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -222,4 +247,8 @@ func (UnimplementedApplicationServiceHandler) ReviewApplication(context.Context,
 
 func (UnimplementedApplicationServiceHandler) GetApplication(context.Context, *connect.Request[v1.GetApplicationRequest]) (*connect.Response[v1.GetApplicationResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("onboarding.v1.ApplicationService.GetApplication is not implemented"))
+}
+
+func (UnimplementedApplicationServiceHandler) UpdateApplicationStatus(context.Context, *connect.Request[v1.UpdateApplicationStatusRequest]) (*connect.Response[v1.UpdateApplicationStatusResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("onboarding.v1.ApplicationService.UpdateApplicationStatus is not implemented"))
 }

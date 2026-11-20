@@ -205,3 +205,25 @@ GetApplicationResponse {
   optional RejectedAtStep rejected_at_step = 4;
 }
 ```
+
+### API 9 — UpdateApplicationStatus
+
+**Purpose**: Allow Temporal Activities to persist workflow progress and business outcomes.
+
+#### Request
+```protobuf
+message UpdateApplicationStatusRequest {
+  string application_id = 1;
+  ApplicationStatus expected_status = 2;
+  ApplicationStatus new_status = 3;
+  optional RejectedAtStep rejected_at_step = 4;
+}
+```
+
+#### Response
+```protobuf
+message UpdateApplicationStatusResponse {
+  string application_id = 1;
+  ApplicationStatus status = 2;
+}
+```
