@@ -2,7 +2,7 @@
 
 A Go backend training project for a lightweight bank account onboarding workflow. The API design covers starting an application, accepting terms, submitting identity details, verifying identity, screening sanctions, reviewing applications, and checking progress.
 
-The project uses Protocol Buffers and Connect RPC. Version 0.2.1 adds architecture, workflow, retry, and database reference documentation to the existing API contracts, generated clients and server interfaces, two runnable HTTP service entry points, and account service and Temporal worker scaffolding. Business handlers, services, repositories, third-party mocks, workflows, activities, and clients remain placeholders; both runnable servers register generated unimplemented handlers.
+The project uses Protocol Buffers and Connect RPC. Version 0.3.0 adds local PostgreSQL and Temporal Dev Server infrastructure through Docker Compose, persistent storage, health checks, and environment configuration. The existing scaffold includes API contracts, generated clients and server interfaces, two runnable HTTP service entry points, account service and Temporal worker placeholders, and design reference documentation. Business handlers, services, repositories, third-party mocks, workflows, activities, and clients remain placeholders; both runnable servers register generated unimplemented handlers.
 
 ## Current Structure
 
@@ -36,6 +36,8 @@ The project uses Protocol Buffers and Connect RPC. Version 0.2.1 adds architectu
 |-- buf.gen.yaml                   # Protobuf and Connect code generation
 |-- go.mod
 |-- go.sum
+|-- compose.yaml                    # Local PostgreSQL and Temporal Dev Server
+|-- .env.example                    # Development database settings
 |-- .github/workflows/ci.yaml       # Protobuf and Go verification pipeline
 |-- AGENTS.md                       # Engineering and review instructions
 |-- Makefile                        # Generation, verification, and local run targets
@@ -63,10 +65,61 @@ The diagrams describe intended behavior, including later cloud deployment, rathe
 ### Prerequisites
 
 - Go 1.26.3 or later, as declared in `go.mod`.
-- Available local ports `8080` and `8081`.
-- Network access to download Go dependencies on the first run.
+- Docker Desktop (Linux containers) or Docker Engine with Docker Compose v2.20+.
+- GNU Make for the Makefile shortcuts; equivalent Docker commands are shown below.
+- Available local ports `5432`, `7233`, `8233`, `8080`, and `8081`.
+- Network access to download container images and Go dependencies on the first run.
 
-Run all commands from the repository root. No database or environment variables are required for the current scaffold.
+Run all commands from the repository root. Only PostgreSQL and Temporal run in Docker. Application, Account, Third-party, and Temporal Worker run on the host; Account and Worker are still placeholders.
+
+### Start local infrastructure
+
+Copy the development settings (use `Copy-Item .env.example .env` in PowerShell):
+
+```sh
+cp .env.example .env
+```
+
+`.env` is gitignored. Its example credentials are for local development only. Compose reads these settings automatically; it does not export them to locally running Go processes. PostgreSQL initialization settings apply only when its data volume is empty; changing `.env` does not change existing database credentials.
+
+Validate and start the infrastructure:
+
+```sh
+docker compose config --quiet
+make up
+# Without Make: docker compose up -d --wait --wait-timeout 120
+```
+
+`make up` waits for both health checks. The first run downloads the pinned official images, `postgres:17.12` and `temporalio/temporal:1.10.1`. Temporal uses its embedded SQLite database in a separate volume; it does not depend on PostgreSQL. See the [PostgreSQL image documentation](https://hub.docker.com/_/postgres) and [Temporal CLI documentation](https://github.com/temporalio/cli#run-via-docker).
+
+| Dependency | Address from local applications | Settings |
+|---|---|---|
+| PostgreSQL | `localhost:5432` | Database, user, and password from `.env` |
+| Temporal gRPC | `localhost:7233` | Namespace `default`; no TLS |
+| Temporal Web UI | `http://localhost:8233` | Browse workflow state |
+
+Published ports bind to loopback for local development. No application tables or migrations are created by this setup. Each service remains responsible for its own data when repositories are implemented.
+
+### Verify infrastructure
+
+```sh
+docker compose ps
+docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT 1;"'
+docker compose exec temporal temporal operator cluster health
+```
+
+Expect both containers to be healthy, PostgreSQL to return `1`, and Temporal to report `SERVING`. Open `http://localhost:8233` to check the Web UI. On PowerShell, the SQL check can instead be run with `docker compose exec postgres psql -U onboarding -d onboarding -c "SELECT 1;"` when using the example settings.
+
+```sh
+make logs
+# Without Make: docker compose logs -f --tail=100
+```
+
+Press `Ctrl+C` to stop following logs. If startup fails, check Docker is running, the published ports are available, and the logs show no initialization errors. A local PostgreSQL installation may already occupy port `5432`; stop it before starting this Compose stack. Running `make up` again reuses existing volumes.
+
+### Run the local Go services
+
+The current HTTP scaffold does not yet connect to PostgreSQL or Temporal.
 
 Install dependencies:
 
@@ -97,11 +150,20 @@ Expected responses are `application service healthy` and `third-party service he
 
 Generated code is already included. If you change protobuf contracts later, install the Buf CLI and regenerate bindings with `buf generate` from the repository root. Generation uses the remote plugins configured in `buf.gen.yaml` and requires network access.
 
+### Shut down infrastructure
+
+```sh
+make down
+# Without Make: docker compose down
+```
+
+Shutdown removes the containers and network while preserving the `postgres_data` and `temporal_data` named volumes. A subsequent `make up` restores database and workflow state. Avoid `docker compose down --volumes` unless you intentionally want to delete all local infrastructure data. Temporal Dev Server is intended for development, not production deployment.
+
 ## Development Tooling and Limitations
 
 The Makefile provides `proto`, `lint`, `fmt`, `vet`, `test`, `test-race`, `build`, and `ci` targets. With Make installed, `make run-app` and `make run-thirdparty` start the existing HTTP servers.
 
-The account and worker commands contain only package declarations and have no `main` functions. Consequently, `make run-account`, `make run-worker`, the combined `make run`, and full executable builds cannot succeed yet. The Docker Compose targets require a Compose configuration, which is not included. Temporal and PostgreSQL dependencies and database migrations are also not included.
+The account and worker commands contain only package declarations and have no `main` functions. Consequently, `make run-account`, `make run-worker`, the combined `make run`, and full executable builds cannot succeed yet. Docker Compose supplies local infrastructure, but Go database/Temporal integration and database migrations are not included.
 
 GitHub Actions checks protobuf lint and generation consistency, Go formatting, static analysis, race-enabled tests, and builds on pull requests and pushes to `main`. Test files currently contain package declarations only and do not verify behavior.
 
