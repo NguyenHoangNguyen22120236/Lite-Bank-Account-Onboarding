@@ -21,13 +21,11 @@ Cloud deployment is a later project phase.
 
 Read relevant documents before proposing changes:
 
-- docs/architecture/overview.md
-- docs/business/onboarding-flow.md
-- docs/business/status-transitions.md
-- docs/database/schema.md
-- docs/reliability/idempotency.md
-- docs/reliability/retry-policy.md
-- docs/testing/test-strategy.md
+- docs/AI/architecture.md
+- docs/AI/onboarding-flow.md
+- docs/AI/onboarding-sequence.md
+- docs/AI/retry-policy.md
+- docs/AI/db.md
 - api/api-design/api-docs.md
 
 Protobuf files are authoritative API contracts.

@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.2.1] - 2026-11-20
+
+Documentation update for onboarding design references.
+
+### Added
+
+- Architecture diagram and component ownership documentation.
+- Business onboarding flow and Mermaid sequences for happy-case processing and sanctions-match human review.
+- Downstream retry policy distinguishing business decisions from technical failures.
+- Descriptions of eight database tables and their relationships, with schema details requiring confirmation.
+- Links to original system and database diagram sources under `docs/Human/`.
+
+### Changed
+
+- AGENTS.md documentation references now point to the available `docs/AI/` files.
+- README documents the design references and distinguishes intended architecture from current implementation.
+
+### Implementation Status
+
+- Runtime code, API contracts, and database schema are unchanged.
+- Business logic and infrastructure remain scaffolded as described in 0.2.0.
+- Database documentation contains unresolved type descriptions and relationship constraints that need review before implementation.
+
 ## [0.2.0] - 2026-11-20
 
 Scaffolding and development tooling update.

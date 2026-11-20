@@ -2,7 +2,7 @@
 
 A Go backend training project for a lightweight bank account onboarding workflow. The API design covers starting an application, accepting terms, submitting identity details, verifying identity, screening sanctions, reviewing applications, and checking progress.
 
-The project uses Protocol Buffers and Connect RPC. Version 0.2.0 provides API contracts, generated clients and server interfaces, two runnable HTTP service entry points, and account service and Temporal worker scaffolding. Business handlers, services, repositories, third-party mocks, workflows, activities, and clients remain placeholders; both runnable servers register generated unimplemented handlers.
+The project uses Protocol Buffers and Connect RPC. Version 0.2.1 adds architecture, workflow, retry, and database reference documentation to the existing API contracts, generated clients and server interfaces, two runnable HTTP service entry points, and account service and Temporal worker scaffolding. Business handlers, services, repositories, third-party mocks, workflows, activities, and clients remain placeholders; both runnable servers register generated unimplemented handlers.
 
 ## Current Structure
 
@@ -17,6 +17,9 @@ The project uses Protocol Buffers and Connect RPC. Version 0.2.0 provides API co
 |   |-- application/main.go        # Application server on :8080
 |   `-- thirdparty/main.go         # Third-party server on :8081
 |-- gen/onboarding/v1/              # Generated protobuf types and Connect bindings
+|-- docs/
+|   |-- AI/                        # Mermaid diagrams, retry policy, and table descriptions
+|   `-- Human/                     # Links to original diagram sources
 |-- internal/
 |   |-- account/                  # Domain, handler, service, and repository placeholders
 |   |-- workflow/                 # Workflow, review update, activity, and client placeholders
@@ -43,6 +46,17 @@ The project uses Protocol Buffers and Connect RPC. Version 0.2.0 provides API co
 ## API Endpoints
 
 See [API documentation](api/api-design/api-docs.md) for the intended behavior and request/response examples. The [protobuf contracts](api/proto/onboarding/v1/) define the current message fields and enum names; some names in the design document differ from these contracts.
+
+## Design Documentation
+
+- [Architecture and component ownership](docs/AI/architecture.md)
+- [Business onboarding flow](docs/AI/onboarding-flow.md)
+- [Happy-case and human-review sequences](docs/AI/onboarding-sequence.md)
+- [Downstream retry policy](docs/AI/retry-policy.md)
+- [Database tables and relationships](docs/AI/db.md)
+- Original sources: [system diagrams](docs/Human/diagrams.md) and [database diagram](docs/Human/db.md)
+
+The diagrams describe intended behavior, including later cloud deployment, rather than the current local scaffold. Database descriptions are discussion references, not migrations. Uncertain schema details and inconsistent relationship descriptions still require confirmation. Protobuf files remain the authoritative API contracts.
 
 ## How to Run Locally
 
@@ -91,4 +105,4 @@ The account and worker commands contain only package declarations and have no `m
 
 GitHub Actions checks protobuf lint and generation consistency, Go formatting, static analysis, race-enabled tests, and builds on pull requests and pushes to `main`. Test files currently contain package declarations only and do not verify behavior.
 
-AGENTS.md describes engineering and human review requirements. Its referenced `docs/` specifications are not present in this checkout.
+[AGENTS.md](AGENTS.md) describes engineering and human review requirements and points to the design documents under `docs/AI/`.
