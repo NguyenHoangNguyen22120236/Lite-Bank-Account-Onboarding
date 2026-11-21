@@ -2,7 +2,7 @@
 
 A Go backend training project for a lightweight bank account onboarding workflow. The API design covers starting an application, accepting terms, submitting identity details, verifying identity, screening sanctions, reviewing applications, and checking progress.
 
-The project uses Protocol Buffers and Connect RPC. Version 0.3.1 clarifies database requirements, relationships, customer reuse, and idempotency considerations in the design documentation. Local PostgreSQL and Temporal Dev Server infrastructure is available through Docker Compose, with persistent storage, health checks, and environment configuration. The existing scaffold includes API contracts, generated clients and server interfaces, two runnable HTTP service entry points, account service and Temporal worker placeholders, and design reference documentation. Business handlers, services, repositories, third-party mocks, workflows, activities, and clients remain placeholders; both runnable servers register generated unimplemented handlers.
+The project uses Protocol Buffers and Connect RPC. Version 0.4.0 adds the database foundation: Goose migrations for three application-owned tables, a reusable pgxpool connection helper, unit tests, and CI migration-file validation. Local PostgreSQL and Temporal Dev Server infrastructure is available through Docker Compose, with persistent storage, health checks, and environment configuration. The existing scaffold includes API contracts, generated clients and server interfaces, two runnable HTTP service entry points, account service and Temporal worker placeholders, and design reference documentation. Business handlers, services, repositories, third-party mocks, workflows, activities, and clients remain placeholders; both runnable servers register generated unimplemented handlers. Services do not yet use the database helper.
 
 ## Current Structure
 
@@ -12,8 +12,8 @@ The project uses Protocol Buffers and Connect RPC. Version 0.3.1 clarifies datab
 |   |-- api-design/api-docs.md       # API design and request/response examples
 |   `-- proto/onboarding/v1/        # Application and third-party RPC contracts
 |-- cmd/
-|   |-- account/main.go            # Account command placeholder (no main function)
-|   |-- worker/main.go             # Worker command placeholder (no main function)
+|   |-- account/main.go            # Buildable Account placeholder; exits immediately
+|   |-- worker/main.go             # Buildable Worker placeholder; exits immediately
 |   |-- application/main.go        # Application server on :8080
 |   `-- thirdparty/main.go         # Third-party server on :8081
 |-- gen/onboarding/v1/              # Generated protobuf types and Connect bindings
@@ -21,6 +21,7 @@ The project uses Protocol Buffers and Connect RPC. Version 0.3.1 clarifies datab
 |   |-- AI/                        # Mermaid diagrams, retry policy, and table descriptions
 |   `-- Human/                     # Links to original diagram sources
 |-- internal/
+|   |-- platform/postgres/         # Reusable pgxpool connection lifecycle helper
 |   |-- account/                  # Domain, handler, service, and repository placeholders
 |   |-- workflow/                 # Workflow, review update, activity, and client placeholders
 |   |-- application/
@@ -36,6 +37,7 @@ The project uses Protocol Buffers and Connect RPC. Version 0.3.1 clarifies datab
 |-- buf.gen.yaml                   # Protobuf and Connect code generation
 |-- go.mod
 |-- go.sum
+|-- migrations/                    # Goose SQL migrations for application-owned tables
 |-- compose.yaml                    # Local PostgreSQL and Temporal Dev Server
 |-- .env.example                    # Development database settings
 |-- .github/workflows/ci.yaml       # Protobuf and Go verification pipeline
@@ -58,7 +60,7 @@ See [API documentation](api/api-design/api-docs.md) for the intended behavior an
 - [Database tables and relationships](docs/AI/db.md)
 - Original sources: [system diagrams](docs/Human/diagrams.md) and [database diagram](docs/Human/db.md)
 
-The diagrams describe intended behavior, including later cloud deployment, rather than the current local scaffold. The database reference records eight tables in one shared PostgreSQL database, confirmed uniqueness and nullability rules, account-status and user-role enums, and customer matching by `id_number`. It also documents one final review per application requiring review, multiple accounts per customer, and reuse of `application_id` as the Temporal workflow ID. These are documented requirements, not implemented migrations or runtime behavior. Customer identity mapping, request-ID persistence, and other remaining design decisions are listed in [the database reference](docs/AI/db.md#remaining-decisions-and-contract-differences). Protobuf files remain the authoritative API contracts.
+The diagrams describe intended behavior, including later cloud deployment, rather than the current local scaffold. The database reference records eight tables in one shared PostgreSQL database. PR 01 supplies migrations for three application-owned tables only: applications, terms acceptances, and application identities. Account/customer/user/review tables and their business behavior remain deferred. Customer identity mapping, review-request persistence, and other remaining design decisions are listed in [the database reference](docs/AI/db.md#remaining-decisions-and-contract-differences). Protobuf files remain the authoritative API contracts.
 
 ## How to Run Locally
 
@@ -98,7 +100,47 @@ make up
 | Temporal gRPC | `localhost:7233` | Namespace `default`; no TLS |
 | Temporal Web UI | `http://localhost:8233` | Browse workflow state |
 
-Published ports bind to loopback for local development. No application tables or migrations are created by this setup. Each service remains responsible for its own data when repositories are implemented.
+Published ports bind to loopback for local development. Compose does not apply migrations; use the explicit commands below. Each service remains responsible for its own data when repositories are implemented.
+
+### Database migrations and connections
+
+Goose v3.24.3 is pinned as a Go tool in `go.mod`; the connection helper uses pgx v5.7.6. Start local PostgreSQL first, then set `DATABASE_URL` explicitly for the target database. Neither Go nor the migration targets load `.env`, and the existing `POSTGRES_*` settings do not automatically construct `DATABASE_URL`.
+
+In Bash, using the example local settings:
+
+```bash
+export DATABASE_URL='postgres://onboarding:onboarding_local@localhost:5432/onboarding?sslmode=disable'
+make migrate-status
+make migrate-up
+make migrate-status
+```
+
+Repeat the export when opening a new terminal. Adjust the credentials and database name to match your PostgreSQL setup. The final status should show the migration as applied.
+
+Without Make, configure Goose explicitly in Bash:
+
+```bash
+export GOOSE_DRIVER=postgres
+export GOOSE_DBSTRING="$DATABASE_URL"
+go tool goose -env none -dir migrations status
+go tool goose -env none -dir migrations up
+```
+
+In PowerShell, the equivalent direct commands are:
+
+```powershell
+$env:DATABASE_URL = 'postgres://onboarding:onboarding_local@localhost:5432/onboarding?sslmode=disable'
+$env:GOOSE_DRIVER = 'postgres'
+$env:GOOSE_DBSTRING = $env:DATABASE_URL
+go tool goose -env none -dir migrations status
+go tool goose -env none -dir migrations up
+```
+
+With GNU Make, `make migrate-status` and `make migrate-up` map `DATABASE_URL` to Goose's environment settings automatically. The `-env none` flag disables Goose's default `.env` loading. The first tool invocation may download dependencies. Up is transactional and repeated Up calls leave applied migrations unchanged. No service applies migrations on startup.
+
+For disposable development/test data only, `make migrate-down` (or `go tool goose -env none -dir migrations down` with the environment above) rolls back the last migration. **Down deletes the three application tables and their data.** Do not use it to roll back valuable data.
+
+`internal/platform/postgres.Open(ctx, dsn)` returns a pool only after a successful ping, uses pgxpool defaults, and closes the pool on initialization failure. Callers should supply a startup timeout and close the returned pool at shutdown. Errors omit driver details that may expose credentials; context cancellation/deadline errors remain detectable with `errors.Is`. Connection retries, repositories, and service wiring are deferred. No command currently opens a database connection.
 
 ### Verify infrastructure
 
@@ -163,8 +205,8 @@ Shutdown removes the containers and network while preserving the `postgres_data`
 
 The Makefile provides `proto`, `lint`, `fmt`, `vet`, `test`, `test-race`, `build`, and `ci` targets. With Make installed, `make run-app` and `make run-thirdparty` start the existing HTTP servers.
 
-The account and worker commands contain only package declarations and have no `main` functions. Consequently, `make run-account`, `make run-worker`, the combined `make run`, and full executable builds cannot succeed yet. Docker Compose supplies local infrastructure, but Go database/Temporal integration and database migrations are not included.
+All four commands have `main` functions and are buildable. Account and worker have empty entry points and exit immediately; they do not serve requests or poll Temporal. Application and third-party retain their unimplemented RPC handlers. Database and Temporal runtime wiring remain deferred.
 
-GitHub Actions checks protobuf lint and generation consistency, Go formatting, static analysis, race-enabled tests, and builds on pull requests and pushes to `main`. Test files currently contain package declarations only and do not verify behavior.
+GitHub Actions checks protobuf lint and generation consistency, Go formatting, static analysis, migration-file validation, race-enabled tests, and builds on pull requests and pushes to `main`. Pool unit tests check invalid DSNs and credential redaction without a database. Migration and live-connection integration tests are intentionally omitted for PR 01; those behaviors require manual verification against disposable PostgreSQL. Most existing service test files remain placeholders.
 
 [AGENTS.md](AGENTS.md) describes engineering and human review requirements and points to the design documents under `docs/AI/`.
