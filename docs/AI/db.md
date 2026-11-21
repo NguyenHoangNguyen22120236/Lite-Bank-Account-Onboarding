@@ -1,111 +1,131 @@
 # Database Tables
 
-This document describes the supplied database diagram. It is a reference for discussion, not a migration or authorization to change the schema. Some labels are small, so uncertain types and constraints are called out below.
+PostgreSQL schema for this study project. All eight tables share one database and use database foreign keys. This confirmed decision supersedes the earlier separate-database assumption; service write ownership still needs to be respected.
 
-## Table overview
+Columns are NOT NULL unless marked nullable. This document records requirements and proposed adjustments; it is not a migration or authorization to alter the database.
 
-| Table | Purpose |
-|---|---|
-| `applications` | Tracks an onboarding application and its processing state. |
-| `terms_acceptances` | Records the terms accepted for an application. |
-| `application_identities` | Stores identity information submitted for an application. |
-| `application_reviews` | Records human review decisions. |
-| `user` | Stores shared user contact and role information. |
-| `customer` | Represents a customer linked to a user. |
-| `banker` | Represents a banker linked to a user. |
-| `accounts` | Stores bank accounts and links them to applications and customers. |
+## applications
 
-## `applications`
-
-| Column | Diagram type | Description |
+| Column | Type | Constraints / meaning |
 |---|---|---|
-| `application_id` | `uuid` | Primary identifier for an onboarding application. |
-| `status` | `enum` | Current application state. Enum values are not shown. |
-| `temporal_workflow_id` | `varchar` | Identifies the Temporal workflow associated with the application. |
-| `created_at` | `timestamptz` | When the application was created. |
-| `updated_at` | `timestamptz` | When the application was last updated. |
-| `completed_at` | `timestamptz` | When processing completed. Nullability is not clear in the image. |
-| `rejected_at_step` | `enum?` | Step at which the application was rejected. The exact label and type need confirmation. |
+| application_id | uuid | PK; referenced by child tables. The export also marks it FK but supplies no outgoing target. |
+| status | enum | Follows ApplicationStatus in application.proto. |
+| temporal_workflow_id | varchar | Unique; assigned at application creation as the string form of application_id and reused for Temporal start retries. |
+| created_at | timestamptz | Creation time. |
+| updated_at | timestamptz | Last update time. |
+| completed_at | timestamptz | Nullable while processing and during recoverable FAILED_TECHNICAL states; populated on successful completion and business rejection. |
+| rejected_at_step | enum | Nullable; follows RejectedAtStep in application.proto. |
 
-## `terms_acceptances`
+ApplicationStatus values (APPLICATION_STATUS_ prefix): UNSPECIFIED, PENDING_TERMS_ACCEPTANCE, PENDING_IDENTITY_SUBMISSION, PENDING_IDENTITY_VERIFICATION, PENDING_SANCTIONS_SCREENING, PENDING_HUMAN_REVIEW, APPROVED, REJECTED, COMPLETED, PENDING_WORKFLOW_START, PENDING_ACCOUNT_CREATION, FAILED_TECHNICAL.
 
-| Column | Diagram type | Description |
+RejectedAtStep values (REJECTED_AT_STEP_ prefix): UNSPECIFIED, IDENTITY_VERIFICATION, HUMAN_REVIEW. Database enum representation and whether unspecified values may be stored remain to be confirmed.
+
+## terms_acceptances
+
+| Column | Type | Constraints / meaning |
 |---|---|---|
-| `acceptance_id` | `uuid` | Primary identifier for an acceptance record. |
-| `application_id` | `uuid` | Application for which terms were accepted. References `applications.application_id`. |
-| `term_id` | `varchar` | Identifier of the accepted terms. A terms-definition table is not shown. |
-| `accepted_at` | `timestamptz` | When the terms were accepted. |
+| acceptance_id | uuid | PK. |
+| application_id | uuid | FK to applications.application_id. |
+| term_id | varchar | Identifier supplied by frontend; backend stores the request value. No backend terms-definition table. |
+| accepted_at | timestamptz | Acceptance time. |
 
-## `application_identities`
+Confirmed unique constraint: (application_id, term_id). This allows multiple distinct terms per application and prevents duplicates for the same terms. The relationship is consequently one-to-many, adjusting the exported one-to-one label.
 
-| Column | Diagram type | Description |
+## application_identities
+
+| Column | Type | Constraints / meaning |
 |---|---|---|
-| `application_id` | `uuid` | Identifies the application and links to `applications.application_id`. Primary key. |
-| `id_number` | `varchar` | Submitted identity-document number. |
-| `full_name` | `varchar` | Applicant's full name. |
-| `date_of_birth` | `date` | Applicant's date of birth. |
-| `id_expiry_date` | `date` | Identity-document expiry date. |
-| `phone_number` | `varchar(20)` | Applicant's phone number. |
-| `email` | `varchar?` | Applicant's email address. Exact type length is unclear. |
-| `created_at` | `timestamptz` | When the identity record was created. |
+| application_id | uuid | PK and FK to applications.application_id. |
+| id_number | varchar | Submitted identity number; not globally unique across applications. |
+| full_name | varchar | Applicant name. |
+| date_of_birth | date | Birth date. |
+| id_expiry_date | date | Document expiry date. |
+| phone_number | varchar(20) | Submitted phone. |
+| email | varchar | Nullable. |
+| created_at | timestamptz | Creation time. |
 
-## `application_reviews`
+At most one identity record per application; repeat applications by a customer are allowed.
 
-| Column | Diagram type | Description |
+## application_reviews
+
+| Column | Type | Constraints / meaning |
 |---|---|---|
-| `review_id` | `uuid` | Primary identifier for a review record. |
-| `application_id` | `uuid` | Unique key, Reviewed application. References `applications.application_id`. |
-| `reviewer_id` | `uuid` | Reviewer identifier. A relationship to `banker` is drawn, but the apparent type differs from `banker.id`. |
-| `decision` | `enum` | Review outcome. Exact enum values are not shown. |
-| `reason` | `text` | Explanation for the review decision. |
-| `reviewed_at` | `bigint` | Review time. The timestamp representation and unit need confirmation. |
+| review_id | uuid | PK. |
+| application_id | uuid | Unique; FK to applications.application_id. |
+| reviewer_id | uuid | FK to banker.id; not unique. |
+| decision | enum | Follows HumanReviewDecision in application.proto. |
+| reason | text | Nullable, matching the optional API reason. |
+| reviewed_at | timestamptz | Confirmed correction from exported bigint. |
 
+Exactly one final review for applications requiring human review; other applications have no review record. A banker can review many applications, so the exported banker-to-review one-to-one label is adjusted to one-to-many. Concurrent decisions must be serialized so only one takes effect; retries must not overwrite an accepted decision.
 
-## `user`
+HumanReviewDecision values (HUMAN_REVIEW_DECISION_ prefix): UNSPECIFIED, PENDING, APPROVED, REJECTED. Allowed persisted values for a final review need confirmation.
 
-| Column | Diagram type | Description |
+## user
+
+| Column | Type | Constraints / meaning |
 |---|---|---|
-| `id` | `uuid` | Primary user identifier. |
-| `email` | `varchar?` | User email address. Exact type length is unclear. |
-| `phone_number` | `varchar(20)` | User phone number. |
-| `role` | `enum` | User role. Exact values are not shown. |
-| `created_at` | `timestamptz` | When the user record was created. |
+| id | uuid | PK. |
+| email | varchar | Unique, nullable. |
+| phone_number | varchar(20) | Unique. |
+| role | enum | CUSTOMER, BANKER, ADMIN. Customer and banker roles are mutually exclusive. |
+| created_at | timestamptz | Creation time. |
 
-## `customer`
+## customer
 
-| Column | Diagram type | Description |
+| Column | Type | Constraints / meaning |
 |---|---|---|
-| `id` | `uuid` | Primary customer identifier. |
-| `user_id` | `uuid` | Links the customer to a user in the diagram. This apparent type conflicts with `user.id`, which is `uuid`. |
-| `created_at` | `timestamptz` | When the customer record was created. |
+| id | uuid | PK. |
+| user_id | uuid | Unique; FK to user.id. |
+| created_at | timestamptz | Creation time. |
 
-## `banker`
+## banker
 
-| Column | Diagram type | Description |
+| Column | Type | Constraints / meaning |
 |---|---|---|
-| `id` | `uuid` | Primary banker identifier. |
-| `user_id` | `uuid` | User associated with the banker. References `user.id`. |
-| `employee_code` | `varchar(20)` | Banker's employee identifier. |
+| id | uuid | PK. |
+| user_id | uuid | Unique (confirmed); FK to user.id. |
+| employee_code | varchar(20) | Unique. |
 
-## `accounts`
+Unique user_id constraints do not themselves prevent a user from appearing in both customer and banker. Enforcement of role exclusivity requires an implementation decision.
 
-| Column | Diagram type | Description |
+## accounts
+
+| Column | Type | Constraints / meaning |
 |---|---|---|
-| `account_id` | `uuid` | Primary account identifier. |
-| `account_number` | `varchar(20)` | Bank account number. The diagram appears to mark it as unique. |
-| `application_id` | `uuid` | Application that produced the account. The diagram appears to mark it as unique. |
-| `account_status` | `enum` | Current account state. Exact values are not shown. |
-| `created_at` | `timestamptz` | When the account was created. |
-| `customer_id` | `uuid` | Customer associated with the account. References `customer.id`. |
+| account_id | uuid | PK. |
+| account_number | varchar(30) | Unique. |
+| application_id | uuid | Unique; FK to applications.application_id. |
+| account_status | enum | ACTIVE, SUSPENDED, CLOSED. These database values are confirmed requirements; account.proto defines no account-status enum. |
+| created_at | timestamptz | Creation time. |
+| customer_id | uuid | FK to customer.id; not unique. |
+
+Each successful application creates one account. A customer can have many accounts through separate applications. After onboarding checks succeed, create user, customer, and account for a new customer; reuse user/customer and create only the account for an existing customer. Match existing customers by id_number, not phone or email.
+
+Creation of a new user, customer, and account should be atomic to avoid partial records. Retrying account creation for the same application must return the existing account. Concurrent applications with the same id_number must resolve to one customer. The current schema has no unique customer-level id_number mapping; its persistence and concurrency enforcement still need a design. Do not make application_identities.id_number globally unique, because repeat applications are allowed.
 
 ## Relationships
 
-| Parent | Related records | Interpretation |
+| Parent key | Foreign key | Cardinality |
 |---|---|---|
-| `applications` | `terms_acceptances` | Each acceptance belongs to an application. No per-terms uniqueness rule is confirmed. |
-| `applications` | `application_identities` | At most one identity record per application if the displayed primary key is confirmed. |
-| `applications` | `application_reviews` | Each review belongs to an application. Whether multiple reviews are allowed needs confirmation. |
-| `banker` | `application_reviews` | Reviews identify a banker as reviewer. Confirm the referenced key and compatible types. |
-| `user` | `customer`, `banker` | Customer and banker records link to a user. One-to-one relationships require uniqueness on `user_id`, which is not confirmed. |
-| `applications` | `accounts` | An account originates from an application. At most one account per application requires the displayed uniqueness to be confirmed. |
-| `customer` | `accounts` | Each account identifies a customer. No one-account-per-customer restriction is established here. |
+| applications.application_id | application_identities.application_id | One to zero or one. |
+| applications.application_id | terms_acceptances.application_id | One to many; unique per application and term. |
+| applications.application_id | application_reviews.application_id | One to zero or one final review. |
+| applications.application_id | accounts.application_id | One to zero or one. |
+| user.id | banker.user_id | One to zero or one. |
+| user.id | customer.user_id | One to zero or one. |
+| banker.id | application_reviews.reviewer_id | One to many. |
+| customer.id | accounts.customer_id | One to many. |
+
+Foreign-key update/delete actions are not specified; no cascading deletion policy is assumed.
+
+## Remaining decisions and contract differences
+
+- Customer matching uses id_number. Decide how to persist and enforce its unique mapping to a customer, and how changed contact details or conflicting phone/email should be handled.
+- Temporal start retries reuse application_id as workflow ID. An already-started workflow must be treated as the existing execution; completed-workflow ID reuse must also be prevented by the configured Temporal policy. A stable ID alone does not prevent a new execution after closure.
+- The exported applications.application_id FK has no outgoing target. It is documented as the parent PK pending clarification.
+- StartApplicationRequest.request_id and ReviewApplicationRequest.review_request_id have no dedicated storage in this schema. Their durable idempotency mapping needs a design; uniqueness on application_id does not by itself implement those contracts.
+- The protobuf omits reviewer_id from ReviewApplicationRequest, while api/api-design/api-docs.md includes it. Confirm how authenticated banker identity is obtained. The API document also omits the protobuf's start request ID and some response fields; protobuf remains authoritative.
+- Confirm permitted persisted review decisions and which service creates user/customer records. Shared database access does not itself settle write ownership.
+
+Only this database document is updated. Other architecture/sequence documents retain their existing service ownership descriptions. Neither referenced protobuf defines completed_at; its semantics above come from the confirmed project requirement.

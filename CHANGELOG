@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.3.1] - 2026-11-21
+
+Database requirements clarification.
+
+### Changed
+
+- Database reference now records eight tables in one shared PostgreSQL database, explicit foreign keys, uniqueness rules, and corrected relationship cardinalities.
+- Documented nullable completion timestamps and review reasons, review timestamps as `timestamptz`, and account numbers as `varchar(30)`.
+- Recorded application and review protobuf enums, account statuses (`ACTIVE`, `SUSPENDED`, `CLOSED`), and user roles (`CUSTOMER`, `BANKER`, `ADMIN`).
+- Clarified customer matching by `id_number`, reuse of existing customer records, multiple accounts per customer, and one final review per application requiring review.
+- Documented `application_id` as the Temporal workflow ID, retry and concurrency requirements, and unresolved customer identity mapping, request-ID persistence, and API documentation differences.
+- Updated README to reflect the clarified database requirements; VERSION advances to 0.3.1.
+
+### Implementation Status
+
+- Documentation and version metadata only; runtime code, API contracts, and database schema are unchanged.
+- No migrations or customer-matching implementation are included; remaining decisions are listed in `docs/AI/db.md`.
+
 ## [0.3.0] - 2026-11-20
 
 Local development infrastructure update.

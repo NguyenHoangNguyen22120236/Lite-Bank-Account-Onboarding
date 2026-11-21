@@ -2,7 +2,7 @@
 
 A Go backend training project for a lightweight bank account onboarding workflow. The API design covers starting an application, accepting terms, submitting identity details, verifying identity, screening sanctions, reviewing applications, and checking progress.
 
-The project uses Protocol Buffers and Connect RPC. Version 0.3.0 adds local PostgreSQL and Temporal Dev Server infrastructure through Docker Compose, persistent storage, health checks, and environment configuration. The existing scaffold includes API contracts, generated clients and server interfaces, two runnable HTTP service entry points, account service and Temporal worker placeholders, and design reference documentation. Business handlers, services, repositories, third-party mocks, workflows, activities, and clients remain placeholders; both runnable servers register generated unimplemented handlers.
+The project uses Protocol Buffers and Connect RPC. Version 0.3.1 clarifies database requirements, relationships, customer reuse, and idempotency considerations in the design documentation. Local PostgreSQL and Temporal Dev Server infrastructure is available through Docker Compose, with persistent storage, health checks, and environment configuration. The existing scaffold includes API contracts, generated clients and server interfaces, two runnable HTTP service entry points, account service and Temporal worker placeholders, and design reference documentation. Business handlers, services, repositories, third-party mocks, workflows, activities, and clients remain placeholders; both runnable servers register generated unimplemented handlers.
 
 ## Current Structure
 
@@ -58,7 +58,7 @@ See [API documentation](api/api-design/api-docs.md) for the intended behavior an
 - [Database tables and relationships](docs/AI/db.md)
 - Original sources: [system diagrams](docs/Human/diagrams.md) and [database diagram](docs/Human/db.md)
 
-The diagrams describe intended behavior, including later cloud deployment, rather than the current local scaffold. Database descriptions are discussion references, not migrations. Uncertain schema details and inconsistent relationship descriptions still require confirmation. Protobuf files remain the authoritative API contracts.
+The diagrams describe intended behavior, including later cloud deployment, rather than the current local scaffold. The database reference records eight tables in one shared PostgreSQL database, confirmed uniqueness and nullability rules, account-status and user-role enums, and customer matching by `id_number`. It also documents one final review per application requiring review, multiple accounts per customer, and reuse of `application_id` as the Temporal workflow ID. These are documented requirements, not implemented migrations or runtime behavior. Customer identity mapping, request-ID persistence, and other remaining design decisions are listed in [the database reference](docs/AI/db.md#remaining-decisions-and-contract-differences). Protobuf files remain the authoritative API contracts.
 
 ## How to Run Locally
 
