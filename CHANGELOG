@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.4.0] - 2026-11-21
+
+Database foundation (PR 01).
+
+### Added
+
+- Transactional Goose Up/Down migration for the application-owned `applications`, `terms_acceptances`, and `application_identities` tables.
+- Named PostgreSQL enums with full protobuf names excluding UNSPECIFIED, unique application request/workflow IDs, per-application term uniqueness, and foreign keys with explicit NO ACTION policies.
+- Reusable pgxpool connection helper with DSN validation, startup ping, cleanup on initialization failure, sanitized errors, and caller-owned pool shutdown.
+- Unit tests for empty/malformed DSNs and credential redaction.
+- Pinned pgx v5.7.6 dependency and Goose v3.24.3 Go tool, with explicit migration up/status/down Makefile targets.
+- CI migration-file validation without a database connection.
+
+### Changed
+
+- Database reference records initial migration coverage, request-ID storage, enum representation, and deferred ownership/idempotency decisions.
+- README documents Bash and PowerShell migration commands, explicit environment configuration, connection lifecycle, and destructive rollback behavior.
+- Corrected stale README statements: account and worker already have empty main functions and are buildable placeholders.
+- VERSION advances to 0.4.0.
+
+### Implementation Status
+
+- Services do not yet use the connection helper or run migrations automatically; API contracts and service ownership remain unchanged.
+- The other five tables, repositories, business behavior, and Temporal runtime wiring remain deferred.
+- Integration tests are omitted by project decision; migration execution and live database connectivity require manual verification against disposable PostgreSQL.
+
 ## [0.3.1] - 2026-11-21
 
 Database requirements clarification.

@@ -4,11 +4,18 @@ PostgreSQL schema for this study project. All eight tables share one database an
 
 Columns are NOT NULL unless marked nullable. This document records requirements and proposed adjustments; it is not a migration or authorization to alter the database.
 
+## PR 01 migration coverage
+
+`migrations/00001_application_foundation.sql` implements only `applications`, `terms_acceptances`, and `application_identities`, owned by Application Service. The other five tables remain design requirements for later PRs. Shared database placement and future cross-service foreign keys do not authorize cross-service table access.
+
+Goose manages the transactional Up and Down migration. Application code supplies UUIDs and timestamps; there are no defaults, triggers, or extensions. Business validation and state transitions remain outside SQL. Down deletes the application data and is only intended for disposable development/test databases.
+
 ## applications
 
 | Column | Type | Constraints / meaning |
 |---|---|---|
-| application_id | uuid | PK; referenced by child tables. The export also marks it FK but supplies no outgoing target. |
+| application_id | uuid | Parent PK; referenced by child tables. No outgoing FK; the export's unexplained FK label is not implemented. |
+| request_id | uuid | NOT NULL UNIQUE; client-generated StartApplicationRequest.request_id. PR 01 adds storage only; retry/replay handling is deferred. |
 | status | enum | Follows ApplicationStatus in application.proto. |
 | temporal_workflow_id | varchar | Unique; assigned at application creation as the string form of application_id and reused for Temporal start retries. |
 | created_at | timestamptz | Creation time. |
@@ -18,7 +25,7 @@ Columns are NOT NULL unless marked nullable. This document records requirements 
 
 ApplicationStatus values (APPLICATION_STATUS_ prefix): UNSPECIFIED, PENDING_TERMS_ACCEPTANCE, PENDING_IDENTITY_SUBMISSION, PENDING_IDENTITY_VERIFICATION, PENDING_SANCTIONS_SCREENING, PENDING_HUMAN_REVIEW, APPROVED, REJECTED, COMPLETED, PENDING_WORKFLOW_START, PENDING_ACCOUNT_CREATION, FAILED_TECHNICAL.
 
-RejectedAtStep values (REJECTED_AT_STEP_ prefix): UNSPECIFIED, IDENTITY_VERIFICATION, HUMAN_REVIEW. Database enum representation and whether unspecified values may be stored remain to be confirmed.
+RejectedAtStep values (REJECTED_AT_STEP_ prefix): UNSPECIFIED, IDENTITY_VERIFICATION, HUMAN_REVIEW. PR 01 uses named PostgreSQL enums `application_status` and `rejected_at_step`, storing the full protobuf names and excluding UNSPECIFIED. An absent rejection step is SQL NULL.
 
 ## terms_acceptances
 
@@ -117,15 +124,14 @@ Creation of a new user, customer, and account should be atomic to avoid partial 
 | banker.id | application_reviews.reviewer_id | One to many. |
 | customer.id | accounts.customer_id | One to many. |
 
-Foreign-key update/delete actions are not specified; no cascading deletion policy is assumed.
+PR 01 foreign keys explicitly use ON UPDATE NO ACTION and ON DELETE NO ACTION. Actions for deferred tables remain unspecified; no cascading deletion policy is assumed.
 
 ## Remaining decisions and contract differences
 
 - Customer matching uses id_number. Decide how to persist and enforce its unique mapping to a customer, and how changed contact details or conflicting phone/email should be handled.
 - Temporal start retries reuse application_id as workflow ID. An already-started workflow must be treated as the existing execution; completed-workflow ID reuse must also be prevented by the configured Temporal policy. A stable ID alone does not prevent a new execution after closure.
-- The exported applications.application_id FK has no outgoing target. It is documented as the parent PK pending clarification.
-- StartApplicationRequest.request_id and ReviewApplicationRequest.review_request_id have no dedicated storage in this schema. Their durable idempotency mapping needs a design; uniqueness on application_id does not by itself implement those contracts.
+- StartApplicationRequest.request_id now has unique storage on applications, but duplicate-request handling is not implemented. ReviewApplicationRequest.review_request_id still requires a durable persistence design; uniqueness on application_id does not by itself implement that contract.
 - The protobuf omits reviewer_id from ReviewApplicationRequest, while api/api-design/api-docs.md includes it. Confirm how authenticated banker identity is obtained. The API document also omits the protobuf's start request ID and some response fields; protobuf remains authoritative.
 - Confirm permitted persisted review decisions and which service creates user/customer records. Shared database access does not itself settle write ownership.
 
-Only this database document is updated. Other architecture/sequence documents retain their existing service ownership descriptions. Neither referenced protobuf defines completed_at; its semantics above come from the confirmed project requirement.
+Other architecture/sequence documents retain their existing service ownership descriptions. Neither referenced protobuf defines completed_at; its semantics above come from the confirmed project requirement.
