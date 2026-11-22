@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.5.0] - 2026-11-22
+
+Application domain and repository (PR 02).
+
+### Added
+
+- Transport-independent Application model, application status and rejection-step types, and a constructor validating required IDs and creation time.
+- Repository interface with Create, GetByID, and GetByRequestID operations.
+- PostgreSQL implementation accepting the existing pgxpool helper's pool, with parameterized SQL and caller-owned connection lifecycle.
+- Distinct errors for missing applications and duplicate application, request, and workflow IDs; sanitized database errors preserve context cancellation and deadline classification.
+- Concise unit tests for domain validation and repository error classification.
+- Opt-in PostgreSQL integration tests for nullable fields and enum round-trips, duplicate request IDs without overwriting existing data, and concurrent duplicate inserts.
+
+### Changed
+
+- Promoted the existing google/uuid dependency to a direct dependency.
+- README documents repository behavior, explicit TEST_DATABASE_URL configuration, integration-test prerequisites, and current CI limitations.
+- VERSION advances to 0.5.0.
+
+### Implementation Status
+
+- Create reports duplicate request IDs; GetByRequestID supports retrieving the original application. Service-level request replay and Temporal startup remain deferred.
+- Protobuf contracts, migrations, handlers, services, and CI configuration are unchanged.
+- Integration tests skip without TEST_DATABASE_URL; CI does not yet provision PostgreSQL or enable these tests.
+
 ## [0.4.0] - 2026-11-21
 
 Database foundation (PR 01).
