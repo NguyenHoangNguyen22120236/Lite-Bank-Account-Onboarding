@@ -2,7 +2,9 @@
 
 A Go backend training project for a lightweight bank account onboarding workflow. The API design covers starting an application, accepting terms, submitting identity details, verifying identity, screening sanctions, reviewing applications, and checking progress.
 
-The project uses Protocol Buffers and Connect RPC. Version 0.5.1 enables PostgreSQL integration tests in CI using a disposable database, existing Goose migrations, and uncached race-enabled test execution. Version 0.5.0 introduced the Application domain model and PostgreSQL repository for creation and lookup by application ID or request ID, with duplicate-key classification, unit tests, and locally opt-in PostgreSQL integration tests. These build on the Goose migrations and reusable pgxpool connection helper introduced in 0.4.0. Local PostgreSQL and Temporal Dev Server infrastructure is available through Docker Compose, with persistent storage, health checks, and environment configuration. Business handlers, services, account repositories, third-party mocks, workflows, activities, and clients remain placeholders; both runnable servers register generated unimplemented handlers. Services do not yet use the database helper or application repository.
+Current version: **0.6.0** — StartApplication API with durable request idempotency and automatic local `.env` loading. See [CHANGELOG](CHANGELOG) for release details.
+
+The project uses Protocol Buffers and Connect RPC. StartApplication now validates client request UUIDs, persists applications through the existing domain and PostgreSQL repository, and resolves retries durably using the unique request ID. The application server manages its pgxpool lifecycle; other application RPCs remain unimplemented. Version 0.5.1 enabled PostgreSQL integration tests in CI using a disposable database, existing Goose migrations, and uncached race-enabled test execution. Version 0.5.0 introduced the Application domain model and repository, building on Goose migrations and the reusable pgxpool helper from 0.4.0. Local PostgreSQL and Temporal Dev Server infrastructure is available through Docker Compose. Account and third-party business code, workflows, activities, and clients remain placeholders; Temporal integration is deferred.
 
 ## Current Structure
 
@@ -82,7 +84,7 @@ Copy the development settings (use `Copy-Item .env.example .env` in PowerShell):
 cp .env.example .env
 ```
 
-`.env` is gitignored. Its example credentials are for local development only. Compose reads these settings automatically; it does not export them to locally running Go processes. PostgreSQL initialization settings apply only when its data volume is empty; changing `.env` does not change existing database credentials.
+`.env` is gitignored. Its example credentials are for local development only. Compose reads these settings automatically. The application server and PostgreSQL integration tests also load the root `.env`, preserving existing environment variables. A missing file is allowed; malformed or unreadable files fail with a safe error. PostgreSQL initialization settings apply only when its data volume is empty; changing `.env` does not change existing database credentials.
 
 Validate and start the infrastructure:
 
@@ -104,7 +106,7 @@ Published ports bind to loopback for local development. Compose does not apply m
 
 ### Database migrations and connections
 
-Goose v3.24.3 is pinned as a Go tool in `go.mod`; the connection helper uses pgx v5.7.6. Start local PostgreSQL first, then set `DATABASE_URL` explicitly for the target database. Neither Go nor the migration targets load `.env`, and the existing `POSTGRES_*` settings do not automatically construct `DATABASE_URL`.
+Goose v3.24.3 is pinned as a Go tool in `go.mod`; the connection helper uses pgx v5.7.6. Start local PostgreSQL first, then set `DATABASE_URL` explicitly for migration commands. Migration targets do not load `.env`, and the existing `POSTGRES_*` settings do not automatically construct `DATABASE_URL`.
 
 In Bash, using the example local settings:
 
@@ -140,7 +142,7 @@ With GNU Make, `make migrate-status` and `make migrate-up` map `DATABASE_URL` to
 
 For disposable development/test data only, `make migrate-down` (or `go tool goose -env none -dir migrations down` with the environment above) rolls back the last migration. **Down deletes the three application tables and their data.** Do not use it to roll back valuable data.
 
-`internal/platform/postgres.Open(ctx, dsn)` returns a pool only after a successful ping, uses pgxpool defaults, and closes the pool on initialization failure. Callers should supply a startup timeout and close the returned pool at shutdown. Errors omit driver details that may expose credentials; context cancellation/deadline errors remain detectable with `errors.Is`. The application PostgreSQL repository accepts this pool and does not own its lifetime. Connection retries and service wiring remain deferred; no service command currently opens a database connection.
+`internal/platform/postgres.Open(ctx, dsn)` returns a pool only after a successful ping, uses pgxpool defaults, and closes the pool on initialization failure. Errors omit driver details that may expose credentials; context cancellation/deadline errors remain detectable with `errors.Is`. The application server opens this pool using `DATABASE_URL` with a 10-second startup timeout, wires the repository, service, and ConnectRPC handler, and closes the pool after HTTP shutdown. Interrupt/SIGTERM allows up to 10 seconds for graceful shutdown before connections are closed. Startup does not retry connections or run migrations.
 
 ### Application repository tests
 
@@ -160,9 +162,9 @@ To run only the PostgreSQL integration tests and bypass cached results:
 go test -v -count=1 ./internal/application/repository/postgres -run '^TestIntegration'
 ```
 
-In PowerShell, set `$env:TEST_DATABASE_URL` to the test connection URL before running the same test commands. Neither the tests nor Make load this variable from `.env`. Tests create unique application IDs and clean up only their own rows; they do not create the database, apply migrations, or truncate tables.
+Alternatively, put `TEST_DATABASE_URL` in the repository root `.env`; PostgreSQL integration tests load it automatically from their package directory. Exported variables (including CI settings) take priority. Use only a disposable, already migrated test database. Tests create unique application IDs and clean up only their own rows; they do not create the database, apply migrations, or truncate tables.
 
-Integration coverage includes nullable completion/rejection fields and enum round-trips through both lookup methods, duplicate request IDs without overwriting existing data, and concurrent inserts for one request ID. `Create` reports `ErrDuplicateRequestID`; callers can retrieve the original application with `GetByRequestID`. Service-level request replay and Temporal startup are deferred.
+Integration coverage includes nullable completion/rejection fields and enum round-trips through both lookup methods, duplicate request IDs without overwriting existing data, and concurrent inserts for one request ID. One ConnectRPC-to-PostgreSQL test covers StartApplication creation, persisted data, replay through fresh service/handler instances, and invalid input. Service unit tests cover validation, creation, replay, and error propagation. Temporal startup remains deferred.
 
 ### Verify infrastructure
 
@@ -191,7 +193,14 @@ Install dependencies:
 go mod download
 ```
 
-Start the application service in one terminal:
+Start PostgreSQL and apply the existing migration first (see above), then put the following URLs in the root `.env` (replace the example settings as needed):
+
+```dotenv
+DATABASE_URL=postgres://onboarding:onboarding_local@localhost:5432/onboarding?sslmode=disable
+TEST_DATABASE_URL=postgres://onboarding:onboarding_local@localhost:5432/onboarding_test?sslmode=disable
+```
+
+The test database must exist and have migrations applied separately. Run the application from the repository root; it loads `.env` from the current working directory, so no Bash `source` command is needed. Existing environment variables take priority:
 
 ```sh
 go run ./cmd/application
@@ -227,7 +236,7 @@ Shutdown removes the containers and network while preserving the `postgres_data`
 
 The Makefile provides `proto`, `lint`, `fmt`, `vet`, `test`, `test-race`, `build`, and `ci` targets. With Make installed, `make run-app` and `make run-thirdparty` start the existing HTTP servers.
 
-All four commands have `main` functions and are buildable. Account and worker have empty entry points and exit immediately; they do not serve requests or poll Temporal. Application and third-party retain their unimplemented RPC handlers. Database and Temporal runtime wiring remain deferred.
+All four commands have `main` functions and are buildable. Account and worker have empty entry points and exit immediately; they do not serve requests or poll Temporal. Application implements StartApplication with PostgreSQL persistence; its other RPCs and all third-party RPCs return Unimplemented. Temporal runtime wiring remains deferred.
 
 GitHub Actions checks protobuf lint and generation consistency, Go formatting, static analysis, migration-file validation, race-enabled tests, and builds on pull requests and pushes to `main`. Each verification job starts a PostgreSQL `postgres:17.12` service container with a disposable `onboarding_test` database and a readiness health check. CI sets `TEST_DATABASE_URL` with fixed test-only credentials, applies the existing migrations through Goose, and runs `go test -race -count=1 -v ./...` so unit and PostgreSQL integration tests run without cached results and appear in the logs. No local `.env`, Docker Compose stack, or Temporal server is required by this job. Pool unit tests cover invalid DSNs and credential redaction; Application tests cover domain validation, repository error classification, round-trips, duplicate request IDs, and concurrent inserts. Most existing service test files remain placeholders.
 

@@ -8,6 +8,7 @@
 
 ```protobuf
 StartApplicationRequest {
+  request_id: string // Client-generated non-nil UUID, reused for retries.
 }
 ```
 
@@ -16,8 +17,15 @@ StartApplicationRequest {
 ```protobuf
 StartApplicationResponse {
   application_id: string
+  status: ApplicationStatus
 }
 ```
+
+A new request persists an application in `APPLICATION_STATUS_PENDING_TERMS_ACCEPTANCE`.
+Reusing `request_id` returns the existing application ID and current status without
+overwriting persisted data. Invalid request IDs return `InvalidArgument`; context
+cancellation and deadlines return `Canceled` and `DeadlineExceeded`. Other failures
+return `Internal`. StartApplication does not start a Temporal workflow.
 
 ### API 2 — AcceptTerms
 

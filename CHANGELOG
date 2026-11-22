@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.6.0] - 2026-11-22
+
+StartApplication API with durable idempotency (PR 03).
+
+### Added
+
+- StartApplication service and ConnectRPC handler using the existing Application domain and PostgreSQL repository.
+- Non-nil request UUID validation and insert-first idempotency: duplicate request IDs return the persisted application ID and current status without overwriting data.
+- ConnectRPC error mapping for validation, cancellation, deadlines, and internal failures, with safe client-facing messages.
+- Service unit tests for validation, creation, replay, and error propagation; one ConnectRPC-to-PostgreSQL integration test for creation, persistence, replay, and invalid input.
+- Optional `.env` loader with environment-variable precedence, safe errors, and unit tests.
+
+### Changed
+
+- Application startup wires the repository, service, and handler; opens PostgreSQL with a startup timeout and closes the pool after graceful HTTP shutdown.
+- Application startup and PostgreSQL integration tests load local `.env` configuration automatically; missing files are allowed.
+- Environment example includes DATABASE_URL and TEST_DATABASE_URL; README and API/database notes describe the implemented behavior.
+- VERSION advances to 0.6.0.
+
+### Implementation Status
+
+- Other application RPCs return Unimplemented through explicit handler stubs; Temporal integration remains deferred.
+- Protobuf contracts, generated code, migrations, and CI configuration are unchanged.
+- Database integration execution still requires a disposable, already migrated database. Local race verification was blocked by a C compiler without 64-bit support; CI verification remains outstanding.
+
 ## [0.5.1] - 2026-11-22
 
 PostgreSQL integration testing in CI.
