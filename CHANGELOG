@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.5.1] - 2026-11-22
+
+PostgreSQL integration testing in CI.
+
+### Changed
+
+- GitHub Actions provisions a PostgreSQL 17.12 service container with a disposable `onboarding_test` database and readiness health check.
+- CI sets `TEST_DATABASE_URL` with test-only credentials and applies existing migrations through Goose before running tests.
+- Unit and PostgreSQL integration tests run with `go test -race -count=1 -v ./...`, disabling test-result caching and showing individual test results.
+- README documents CI database setup and integration-test execution; VERSION advances to 0.5.1.
+
+### Implementation Status
+
+- Application code, tests, protobuf contracts, migrations, Makefile, and local environment settings are unchanged.
+- Local integration tests remain opt-in through `TEST_DATABASE_URL`; CI execution requires verification in GitHub Actions.
+
 ## [0.5.0] - 2026-11-22
 
 Application domain and repository (PR 02).
