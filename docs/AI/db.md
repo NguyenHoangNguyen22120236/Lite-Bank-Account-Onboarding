@@ -15,7 +15,7 @@ Goose manages the transactional Up and Down migration. Application code supplies
 | Column | Type | Constraints / meaning |
 |---|---|---|
 | application_id | uuid | Parent PK; referenced by child tables. No outgoing FK; the export's unexplained FK label is not implemented. |
-| request_id | uuid | NOT NULL UNIQUE; client-generated StartApplicationRequest.request_id. PR 01 adds storage only; retry/replay handling is deferred. |
+| request_id | uuid | NOT NULL UNIQUE; client-generated StartApplicationRequest.request_id. StartApplication resolves duplicate inserts by reading the existing application without overwriting it. |
 | status | enum | Follows ApplicationStatus in application.proto. |
 | temporal_workflow_id | varchar | Unique; assigned at application creation as the string form of application_id and reused for Temporal start retries. |
 | created_at | timestamptz | Creation time. |
@@ -130,8 +130,8 @@ PR 01 foreign keys explicitly use ON UPDATE NO ACTION and ON DELETE NO ACTION. A
 
 - Customer matching uses id_number. Decide how to persist and enforce its unique mapping to a customer, and how changed contact details or conflicting phone/email should be handled.
 - Temporal start retries reuse application_id as workflow ID. An already-started workflow must be treated as the existing execution; completed-workflow ID reuse must also be prevented by the configured Temporal policy. A stable ID alone does not prevent a new execution after closure.
-- StartApplicationRequest.request_id now has unique storage on applications, but duplicate-request handling is not implemented. ReviewApplicationRequest.review_request_id still requires a durable persistence design; uniqueness on application_id does not by itself implement that contract.
-- The protobuf omits reviewer_id from ReviewApplicationRequest, while api/api-design/api-docs.md includes it. Confirm how authenticated banker identity is obtained. The API document also omits the protobuf's start request ID and some response fields; protobuf remains authoritative.
+- StartApplicationRequest.request_id has durable replay handling through Create and GetByRequestID. ReviewApplicationRequest.review_request_id still requires a durable persistence design; uniqueness on application_id does not by itself implement that contract.
+- The protobuf omits reviewer_id from ReviewApplicationRequest, while api/api-design/api-docs.md includes it. Confirm how authenticated banker identity is obtained. The API document also omits some response fields; protobuf remains authoritative.
 - Confirm permitted persisted review decisions and which service creates user/customer records. Shared database access does not itself settle write ownership.
 
 Other architecture/sequence documents retain their existing service ownership descriptions. Neither referenced protobuf defines completed_at; its semantics above come from the confirmed project requirement.

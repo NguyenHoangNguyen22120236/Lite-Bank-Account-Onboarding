@@ -14,13 +14,17 @@ import (
 
 	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/application/domain"
 	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/application/repository"
+	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/platform/config"
 	platformpostgres "github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/platform/postgres"
 )
 
 // Set TEST_DATABASE_URL only for a disposable, already migrated database.
-// Tests do not load .env, run migrations, or truncate tables.
+// Tests optionally load the root .env; they do not run migrations or truncate tables.
 func integrationPool(t *testing.T) (*pgxpool.Pool, context.Context) {
 	t.Helper()
+	if err := config.LoadDotEnv("../../../../.env"); err != nil {
+		t.Fatal(err)
+	}
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
 		t.Skip("TEST_DATABASE_URL is not set")
