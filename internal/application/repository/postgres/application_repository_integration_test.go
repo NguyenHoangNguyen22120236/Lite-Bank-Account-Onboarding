@@ -51,7 +51,7 @@ func fixture() domain.Application {
 	now := time.Date(2026, 11, 21, 3, 4, 5, 123456000, time.UTC)
 	return domain.Application{
 		ApplicationID: id, RequestID: uuid.New(),
-		Status: domain.ApplicationStatusPendingTermsAcceptance,
+		Status:             domain.ApplicationStatusPendingTermsAcceptance,
 		TemporalWorkflowID: id.String(), CreatedAt: now, UpdatedAt: now.Add(time.Minute),
 	}
 }
