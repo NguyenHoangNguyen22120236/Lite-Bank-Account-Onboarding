@@ -2,7 +2,7 @@
 
 A Go backend training project for a lightweight bank account onboarding workflow. The API design covers starting an application, accepting terms, submitting identity details, verifying identity, screening sanctions, reviewing applications, and checking progress.
 
-The project uses Protocol Buffers and Connect RPC. Version 0.4.0 adds the database foundation: Goose migrations for three application-owned tables, a reusable pgxpool connection helper, unit tests, and CI migration-file validation. Local PostgreSQL and Temporal Dev Server infrastructure is available through Docker Compose, with persistent storage, health checks, and environment configuration. The existing scaffold includes API contracts, generated clients and server interfaces, two runnable HTTP service entry points, account service and Temporal worker placeholders, and design reference documentation. Business handlers, services, repositories, third-party mocks, workflows, activities, and clients remain placeholders; both runnable servers register generated unimplemented handlers. Services do not yet use the database helper.
+The project uses Protocol Buffers and Connect RPC. Version 0.5.0 adds the Application domain model and PostgreSQL repository for creation and lookup by application ID or request ID, with duplicate-key classification, unit tests, and opt-in PostgreSQL integration tests. It builds on the Goose migrations and reusable pgxpool connection helper introduced in 0.4.0. Local PostgreSQL and Temporal Dev Server infrastructure is available through Docker Compose, with persistent storage, health checks, and environment configuration. Business handlers, services, account repositories, third-party mocks, workflows, activities, and clients remain placeholders; both runnable servers register generated unimplemented handlers. Services do not yet use the database helper or application repository.
 
 ## Current Structure
 
@@ -25,9 +25,9 @@ The project uses Protocol Buffers and Connect RPC. Version 0.4.0 adds the databa
 |   |-- account/                  # Domain, handler, service, and repository placeholders
 |   |-- workflow/                 # Workflow, review update, activity, and client placeholders
 |   |-- application/
-|   |   |-- domain/                # Domain placeholders
+|   |   |-- domain/                # Application model, statuses, and constructor
 |   |   |-- handler/               # RPC handler placeholders
-|   |   |-- repository/            # Repository interface and PostgreSQL placeholders
+|   |   |-- repository/            # Application repository interface and PostgreSQL implementation
 |   |   `-- service/               # Business logic placeholders
 |   `-- thirdparty/
 |       |-- handler/               # Third-party handler placeholders
@@ -140,7 +140,29 @@ With GNU Make, `make migrate-status` and `make migrate-up` map `DATABASE_URL` to
 
 For disposable development/test data only, `make migrate-down` (or `go tool goose -env none -dir migrations down` with the environment above) rolls back the last migration. **Down deletes the three application tables and their data.** Do not use it to roll back valuable data.
 
-`internal/platform/postgres.Open(ctx, dsn)` returns a pool only after a successful ping, uses pgxpool defaults, and closes the pool on initialization failure. Callers should supply a startup timeout and close the returned pool at shutdown. Errors omit driver details that may expose credentials; context cancellation/deadline errors remain detectable with `errors.Is`. Connection retries, repositories, and service wiring are deferred. No command currently opens a database connection.
+`internal/platform/postgres.Open(ctx, dsn)` returns a pool only after a successful ping, uses pgxpool defaults, and closes the pool on initialization failure. Callers should supply a startup timeout and close the returned pool at shutdown. Errors omit driver details that may expose credentials; context cancellation/deadline errors remain detectable with `errors.Is`. The application PostgreSQL repository accepts this pool and does not own its lifetime. Connection retries and service wiring remain deferred; no service command currently opens a database connection.
+
+### Application repository tests
+
+`make test` runs `go test ./...`; `make test-race` runs the same suite with the race detector. Unit tests require no database. PostgreSQL integration tests skip when `TEST_DATABASE_URL` is absent. When it is supplied, connection or schema errors fail the tests.
+
+To enable integration tests, point the variable at a disposable test database with the existing migration already applied. For example, in Bash (replace the connection settings with your test database settings):
+
+```bash
+export TEST_DATABASE_URL='postgres://onboarding:onboarding_local@localhost:5432/onboarding_test?sslmode=disable'
+make test
+make test-race
+```
+
+To run only the PostgreSQL integration tests and bypass cached results:
+
+```bash
+go test -v -count=1 ./internal/application/repository/postgres -run '^TestIntegration'
+```
+
+In PowerShell, set `$env:TEST_DATABASE_URL` to the test connection URL before running the same test commands. Neither the tests nor Make load this variable from `.env`. Tests create unique application IDs and clean up only their own rows; they do not create the database, apply migrations, or truncate tables.
+
+Integration coverage includes nullable completion/rejection fields and enum round-trips through both lookup methods, duplicate request IDs without overwriting existing data, and concurrent inserts for one request ID. `Create` reports `ErrDuplicateRequestID`; callers can retrieve the original application with `GetByRequestID`. Service-level request replay and Temporal startup are deferred.
 
 ### Verify infrastructure
 
@@ -207,6 +229,6 @@ The Makefile provides `proto`, `lint`, `fmt`, `vet`, `test`, `test-race`, `build
 
 All four commands have `main` functions and are buildable. Account and worker have empty entry points and exit immediately; they do not serve requests or poll Temporal. Application and third-party retain their unimplemented RPC handlers. Database and Temporal runtime wiring remain deferred.
 
-GitHub Actions checks protobuf lint and generation consistency, Go formatting, static analysis, migration-file validation, race-enabled tests, and builds on pull requests and pushes to `main`. Pool unit tests check invalid DSNs and credential redaction without a database. Migration and live-connection integration tests are intentionally omitted for PR 01; those behaviors require manual verification against disposable PostgreSQL. Most existing service test files remain placeholders.
+GitHub Actions checks protobuf lint and generation consistency, Go formatting, static analysis, migration-file validation, race-enabled tests, and builds on pull requests and pushes to `main`. Pool unit tests check invalid DSNs and credential redaction without a database. Application unit tests cover domain validation and repository error classification. CI currently provisions no PostgreSQL instance and sets no `TEST_DATABASE_URL`, so the repository integration tests skip there. Migration execution remains a separate manual check against disposable PostgreSQL. Most existing service test files remain placeholders.
 
 [AGENTS.md](AGENTS.md) describes engineering and human review requirements and points to the design documents under `docs/AI/`.
