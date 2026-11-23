@@ -48,6 +48,18 @@ accepted: bool
 }
 ```
 
+`application_id` must be a non-nil UUID. `term_id` must not be empty,
+whitespace-only, or contain NUL; its original case and whitespace are preserved.
+The first acceptance atomically records the term and advances
+`PENDING_TERMS_ACCEPTANCE` to `PENDING_IDENTITY_SUBMISSION`.
+This flow permits one distinct term per application. Repeating the same recorded
+term at any later state returns `accepted=true` without changing persisted data.
+A different recorded term returns `AlreadyExists`; an invalid transition or
+an acceptance already present in the initial state returns `FailedPrecondition`.
+Invalid input returns `InvalidArgument`, an absent application returns `NotFound`,
+and database failures return sanitized `Internal` errors. Cancellation and
+deadlines return `Canceled` and `DeadlineExceeded`. No Temporal workflow starts.
+
 ### API 3 — SubmitIdentity
 
 **Purpose**: Submit customer identity details and initiate the asynchronous account-opening workflow.

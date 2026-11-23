@@ -12,10 +12,12 @@ import (
 
 	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/application/domain"
 	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/application/repository"
+	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/application/service"
 )
 
-// DB is the pool subset needed for single-statement application persistence.
+// DB is the pool subset needed for application persistence.
 type DB interface {
+	Begin(context.Context) (pgx.Tx, error)
 	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
 	QueryRow(context.Context, string, ...any) pgx.Row
 }
@@ -25,8 +27,8 @@ type Repository struct {
 }
 
 var (
-	_ DB                    = (*pgxpool.Pool)(nil)
-	_ repository.Repository = (*Repository)(nil)
+	_ DB                 = (*pgxpool.Pool)(nil)
+	_ service.Repository = (*Repository)(nil)
 )
 
 // New uses a pool opened by platform/postgres.Open. The caller owns its lifetime.

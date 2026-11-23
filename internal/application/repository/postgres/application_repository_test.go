@@ -17,6 +17,10 @@ import (
 // This stub returns errors only; successful scanning is tested against PostgreSQL.
 type failingDB struct{ err error }
 
+func (db failingDB) Begin(context.Context) (pgx.Tx, error) {
+	return nil, db.err
+}
+
 func (db failingDB) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
 	return pgconn.CommandTag{}, db.err
 }
