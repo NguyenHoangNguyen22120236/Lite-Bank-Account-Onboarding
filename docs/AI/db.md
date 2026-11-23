@@ -38,6 +38,15 @@ RejectedAtStep values (REJECTED_AT_STEP_ prefix): UNSPECIFIED, IDENTITY_VERIFICA
 
 Confirmed unique constraint: (application_id, term_id). This allows multiple distinct terms per application and prevents duplicates for the same terms. The relationship is consequently one-to-many, adjusting the exported one-to-one label.
 
+PR 04 restricts the AcceptTerms onboarding API to one distinct term per application,
+while retaining this broader schema capability. It locks the application row in a
+transaction before checking existing acceptances and the state transition. The
+acceptance insert and status/timestamp update commit together. Same-term retries
+after progression are read-only successes; different terms conflict. An acceptance
+already present while status is pending terms is inconsistent and is not repaired
+by this API. Other writers must follow the same parent-lock protocol when adding
+terms; the per-term unique constraint alone does not enforce the API restriction.
+
 ## application_identities
 
 | Column | Type | Constraints / meaning |

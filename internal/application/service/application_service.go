@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -12,10 +13,9 @@ import (
 	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/application/repository"
 )
 
-var ErrInvalidRequestID = errors.New("request_id must be a non-nil UUID")
-
-// Repository is the persistence subset needed to start or replay an application.
+// Repository is the persistence subset needed by application operations.
 type Repository interface {
+	AcceptTerms(context.Context, domain.TermsAcceptance) error
 	Create(context.Context, domain.Application) error
 	GetByRequestID(context.Context, uuid.UUID) (domain.Application, error)
 }
@@ -49,4 +49,22 @@ func (s *Service) StartApplication(ctx context.Context, requestID string) (domai
 		return existing, nil
 	}
 	return app, nil
+}
+
+func (s *Service) AcceptTerms(ctx context.Context, applicationID, termID string) error {
+	id, err := uuid.Parse(applicationID)
+	if err != nil || id == uuid.Nil {
+		return ErrInvalidApplicationID
+	}
+	if strings.TrimSpace(termID) == "" || strings.ContainsRune(termID, '\x00') {
+		return ErrInvalidTermID
+	}
+	acceptance := domain.TermsAcceptance{
+		AcceptanceID: uuid.New(), ApplicationID: id,
+		TermID: termID, AcceptedAt: time.Now().UTC(),
+	}
+	if err := s.repository.AcceptTerms(ctx, acceptance); err != nil {
+		return fmt.Errorf("accept terms: %w", err)
+	}
+	return nil
 }

@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.7.0] - 2026-11-23
+
+AcceptTerms API with atomic persistence and safe retries (PR 04).
+
+### Added
+
+- AcceptTerms through ConnectRPC, service, domain rules, and PostgreSQL, validating non-nil application UUIDs and nonblank, NUL-free term IDs while preserving exact term values.
+- Atomic terms acceptance and transition from PENDING_TERMS_ACCEPTANCE to PENDING_IDENTITY_SUBMISSION, using a transaction and application-row lock to serialize concurrent requests.
+- Same-term replay without changing persisted data at later states; conflicting terms and invalid transitions return distinct ConnectRPC errors.
+- Table-driven domain tests, concise service validation/error tests, and PostgreSQL/ConnectRPC integration tests for acceptance, replay, errors, and concurrent same-term/different-term requests.
+
+### Changed
+
+- Repository interface is owned by the consuming service package; removed the duplicate repository interface and its empty test file.
+- Shared error declarations are organized in errors.go files within domain, service, and repository packages.
+- API/database documentation clarifies the one-distinct-term restriction for this flow while preserving the existing one-to-many schema.
+- VERSION advances to 0.7.0; README reflects implemented APIs and test coverage.
+
+### Implementation Status
+
+- Protobuf contracts, generated code, migrations, dependencies, and Temporal integration are unchanged.
+- Full Go tests, focused PostgreSQL integration tests, and go vet passed during implementation. Subsequent organizational refactors passed non-integration checks and focused domain/service tests; database integration tests were not rerun after those refactors.
+- Local race verification remains blocked by a C compiler without 64-bit support; CI and final human review remain outstanding.
+
 ## [0.6.0] - 2026-11-22
 
 StartApplication API with durable idempotency (PR 03).
