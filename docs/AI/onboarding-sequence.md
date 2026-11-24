@@ -2,6 +2,12 @@
 
 The Mermaid diagram below transcribes the principal interactions visible in the supplied **Full Creating Account Process (Happy Case)** sequence diagram. It focuses on the happy path; failure handling is documented separately in docs/AI/retry-policy.md
 
+PR 05 ends SubmitIdentity after atomically persisting identity and
+`PENDING_WORKFLOW_START`, returning that persisted status to the caller. It does
+not start Temporal. Workflow startup will be implemented in **PR 06**; the Temporal
+interactions below describe the intended later behavior. Exact identity retries
+return current persisted status without modifying identity or application data.
+
 ```mermaid
 sequenceDiagram
     autonumber
