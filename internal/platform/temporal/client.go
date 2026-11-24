@@ -11,8 +11,8 @@ type Config struct{ Address, Namespace, TaskQueue string }
 
 func FromEnv() Config {
 	return Config{
-		Address: setting("TEMPORAL_ADDRESS", "localhost:7233"), 
-		Namespace: setting("TEMPORAL_NAMESPACE", "default"), 
+		Address:   setting("TEMPORAL_ADDRESS", "localhost:7233"),
+		Namespace: setting("TEMPORAL_NAMESPACE", "default"),
 		TaskQueue: setting("TEMPORAL_TASK_QUEUE", "bank-onboarding"),
 	}
 }

@@ -50,7 +50,7 @@ func run() error {
 	defer temporalClient.Close()
 
 	mux := http.NewServeMux()
-	  := handler.New(service.New(applicationpostgres.New(pool), applicationworkflow.New(temporalClient, temporalConfig.TaskQueue)))
+	applicationHandler := handler.New(service.New(applicationpostgres.New(pool), applicationworkflow.New(temporalClient, temporalConfig.TaskQueue)))
 
 	path, rpcHandler :=
 		onboardingv1connect.NewApplicationServiceHandler(applicationHandler)
