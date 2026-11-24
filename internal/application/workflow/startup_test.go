@@ -21,14 +21,14 @@ import (
 type startupClient struct {
 	client.Client
 	execute  func(context.Context, client.StartWorkflowOptions, interface{}, ...interface{}) (client.WorkflowRun, error)
-	describe func(context.Context, string, string) (*workflowservice.DescribeWorkflowExecutionResponse, error)
+	describe func(context.Context, string, string) (*client.WorkflowExecutionDescription, error)
 }
 
 func (c startupClient) ExecuteWorkflow(ctx context.Context, options client.StartWorkflowOptions, workflow interface{}, args ...interface{}) (client.WorkflowRun, error) {
 	return c.execute(ctx, options, workflow, args...)
 }
 
-func (c startupClient) DescribeWorkflowExecution(ctx context.Context, id, run string) (*workflowservice.DescribeWorkflowExecutionResponse, error) {
+func (c startupClient) DescribeWorkflow(ctx context.Context, id, run string) (*client.WorkflowExecutionDescription, error) {
 	return c.describe(ctx, id, run)
 }
 
@@ -102,13 +102,13 @@ func TestStartupClosedDuplicateClassification(t *testing.T) {
 					startupDeadline, _ = ctx.Deadline()
 					return nil, &serviceerror.WorkflowExecutionAlreadyStarted{RunId: "existing-run"}
 				},
-				describe: func(ctx context.Context, workflowID, runID string) (*workflowservice.DescribeWorkflowExecutionResponse, error) {
+				describe: func(ctx context.Context, workflowID, runID string) (*client.WorkflowExecutionDescription, error) {
 					describes++
 					deadline, ok := ctx.Deadline()
 					if !ok || deadline.After(startupDeadline) || workflowID != id || runID != "existing-run" {
 						t.Fatal("describe must use exact run and remaining startup budget")
 					}
-					return &workflowservice.DescribeWorkflowExecutionResponse{WorkflowExecutionInfo: &workflowpb.WorkflowExecutionInfo{Status: tc.status}}, nil
+					return &client.WorkflowExecutionDescription{RawResponse: &workflowservice.DescribeWorkflowExecutionResponse{WorkflowExecutionInfo: &workflowpb.WorkflowExecutionInfo{Status: tc.status}}}, nil
 				},
 			}
 			got, err := New(c, "bank-onboarding").EnsureStarted(context.Background(), id, id)
@@ -139,7 +139,7 @@ func TestStartupErrorsDoNotRetry(t *testing.T) {
 						}
 						return nil, tc.cause
 					},
-					describe: func(context.Context, string, string) (*workflowservice.DescribeWorkflowExecutionResponse, error) {
+					describe: func(context.Context, string, string) (*client.WorkflowExecutionDescription, error) {
 						describes++
 						return nil, tc.cause
 					},

@@ -9,13 +9,12 @@ import (
 	workflowdefinition "github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/workflow"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
-	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
 )
 
 type Client interface {
 	ExecuteWorkflow(context.Context, client.StartWorkflowOptions, interface{}, ...interface{}) (client.WorkflowRun, error)
-	DescribeWorkflowExecution(context.Context, string, string) (*workflowservice.DescribeWorkflowExecutionResponse, error)
+	DescribeWorkflow(context.Context, string, string) (*client.WorkflowExecutionDescription, error)
 }
 
 // Starter is Main BE's client adapter, not worker workflow orchestration.
@@ -47,14 +46,14 @@ func (s *Starter) EnsureStarted(ctx context.Context, applicationID, workflowID s
 	if duplicate.RunId == "" {
 		return 0, service.ErrWorkflowUnavailable
 	}
-	response, err := s.client.DescribeWorkflowExecution(ctx, workflowID, duplicate.RunId)
+	response, err := s.client.DescribeWorkflow(ctx, workflowID, duplicate.RunId)
 	if err != nil {
 		return 0, startupError(ctx, err)
 	}
-	if response == nil || response.WorkflowExecutionInfo == nil {
+	if response == nil || response.RawResponse == nil || response.RawResponse.WorkflowExecutionInfo == nil {
 		return 0, service.ErrWorkflowUnavailable
 	}
-	switch response.WorkflowExecutionInfo.Status {
+	switch response.RawResponse.WorkflowExecutionInfo.Status {
 	case enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING:
 		return service.WorkflowStartEstablished, nil
 	case enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED:
