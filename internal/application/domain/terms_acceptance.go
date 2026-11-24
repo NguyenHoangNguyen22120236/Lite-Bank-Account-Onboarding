@@ -1,9 +1,15 @@
 package domain
 
 import (
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
+)
+
+var (
+	ErrConflictingTerms  = errors.New("a different term has already been accepted")
+	ErrInvalidTermsState = errors.New("application is not in a valid state for terms acceptance")
 )
 
 type TermsAcceptance struct {

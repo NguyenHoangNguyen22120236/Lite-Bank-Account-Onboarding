@@ -2,9 +2,9 @@
 
 A Go backend training project for a lightweight bank account onboarding workflow. The API design covers starting an application, accepting terms, submitting identity details, verifying identity, screening sanctions, reviewing applications, and checking progress.
 
-Current version: **0.7.0** — AcceptTerms API with atomic persistence, idempotent replay, and concurrency protection. See [CHANGELOG](CHANGELOG) for release details.
+Current version: **0.8.0** — SubmitIdentity validation, atomic persistence, durable replay, and concurrency protection (PR 05). See [CHANGELOG](CHANGELOG) for release details.
 
-The project uses Protocol Buffers and Connect RPC. StartApplication validates client request UUIDs, persists applications, and resolves retries durably using the unique request ID. AcceptTerms records acceptance and advances the application status atomically, using PostgreSQL transactions and row locks for concurrent requests. The application server manages its pgxpool lifecycle and loads local `.env` configuration. Remaining application RPCs are unimplemented. CI runs PostgreSQL integration tests against a disposable database using existing Goose migrations. Local PostgreSQL and Temporal Dev Server infrastructure is available through Docker Compose. Account and third-party business code, workflows, activities, and clients remain placeholders; Temporal integration is deferred.
+The project uses Protocol Buffers and Connect RPC. StartApplication validates client request UUIDs, persists applications, and resolves retries durably using the unique request ID. AcceptTerms records acceptance and advances the application status atomically. SubmitIdentity validates customer identity, saves it, and advances status to `PENDING_WORKFLOW_START` in one transaction. Both operations use PostgreSQL row locks for concurrent requests and support durable replay. The application server manages its pgxpool lifecycle and loads local `.env` configuration. Remaining application RPCs are unimplemented. CI runs PostgreSQL integration tests against a disposable database using existing Goose migrations. Local PostgreSQL and Temporal Dev Server infrastructure is available through Docker Compose. Account and third-party business code, workflows, activities, and clients remain placeholders; workflow startup will be implemented in PR 06.
 
 ## Current Structure
 
@@ -57,6 +57,7 @@ Implemented application APIs:
 
 - **StartApplication:** creates an application in `PENDING_TERMS_ACCEPTANCE`; retries with the same request UUID return the existing application and current status.
 - **AcceptTerms:** validates a non-nil application UUID and a nonblank, NUL-free term ID. It preserves the exact term value, records acceptance, and advances to `PENDING_IDENTITY_SUBMISSION` in one transaction. Repeating the recorded term after progression returns `accepted=true` without changing data. Different terms conflict; invalid state transitions fail. This flow permits one distinct term per application, while the schema retains its one-to-many capability. Neither API starts Temporal.
+- **SubmitIdentity (PR 05):** validates identity details and atomically saves identity while advancing to `PENDING_WORKFLOW_START`. Exact retries at progressed states return current status without writes; changed identities and invalid states are rejected. Workflow startup will be implemented in **PR 06**. SubmitIdentity does not start Temporal in PR 05.
 
 ## Design Documentation
 
@@ -169,7 +170,7 @@ go test -v -count=1 ./internal/application/repository/postgres -run '^TestIntegr
 
 Alternatively, put `TEST_DATABASE_URL` in the repository root `.env`; PostgreSQL integration tests load it automatically from their package directory. Exported variables (including CI settings) take priority. Use only a disposable, already migrated test database. Tests create unique application IDs and clean up only their own rows; they do not create the database, apply migrations, or truncate tables.
 
-Integration coverage includes nullable completion/rejection fields and enum round-trips through both lookup methods, duplicate request IDs without overwriting existing data, and concurrent inserts for one request ID. ConnectRPC-to-PostgreSQL tests cover StartApplication creation/replay and AcceptTerms persistence/replay, invalid input, missing applications, state/term conflicts, and concurrent same-term/different-term requests. Domain tests cover acceptance decisions; service unit tests cover validation and error propagation alongside StartApplication creation/replay. Tests clean up acceptance rows before their parent applications. Temporal startup remains deferred.
+Integration coverage includes nullable completion/rejection fields and enum round-trips through both lookup methods, duplicate request IDs without overwriting existing data, and concurrent inserts for one request ID. ConnectRPC-to-PostgreSQL tests cover StartApplication creation/replay, AcceptTerms persistence/replay, and SubmitIdentity persistence/replay, optional email presence, conflicts, invalid states, concurrent identical/conflicting submissions, and error mappings. Domain tests cover terms decisions and identity validation, calendar boundaries, equality, and state transitions; concise service tests cover validation, delegation, and error propagation. Tests clean up identity and acceptance rows before their parent applications. Workflow startup remains deferred to PR 06.
 
 ### Verify infrastructure
 
@@ -190,7 +191,7 @@ Press `Ctrl+C` to stop following logs. If startup fails, check Docker is running
 
 ### Run the local Go services
 
-The application server connects to PostgreSQL for StartApplication and AcceptTerms. Temporal runtime wiring remains deferred.
+The application server connects to PostgreSQL for StartApplication, AcceptTerms, and SubmitIdentity. Workflow startup remains deferred to PR 06.
 
 Install dependencies:
 
@@ -241,7 +242,7 @@ Shutdown removes the containers and network while preserving the `postgres_data`
 
 The Makefile provides `proto`, `lint`, `fmt`, `vet`, `test`, `test-race`, `build`, and `ci` targets. With Make installed, `make run-app` and `make run-thirdparty` start the existing HTTP servers.
 
-All four commands have `main` functions and are buildable. Account and worker have empty entry points and exit immediately; they do not serve requests or poll Temporal. Application implements StartApplication and AcceptTerms with PostgreSQL persistence; its remaining RPCs and all third-party RPCs return Unimplemented. Temporal runtime wiring remains deferred.
+All four commands have `main` functions and are buildable. Account and worker have empty entry points and exit immediately; they do not serve requests or poll Temporal. Application implements StartApplication, AcceptTerms, and SubmitIdentity with PostgreSQL persistence; its remaining RPCs and all third-party RPCs return Unimplemented. Workflow startup remains deferred to PR 06.
 
 GitHub Actions checks protobuf lint and generation consistency, Go formatting, static analysis, migration-file validation, race-enabled tests, and builds on pull requests and pushes to `main`. Each verification job starts a PostgreSQL `postgres:17.12` service container with a disposable `onboarding_test` database and a readiness health check. CI sets `TEST_DATABASE_URL` with fixed test-only credentials, applies the existing migrations through Goose, and runs `go test -race -count=1 -v ./...` so unit and PostgreSQL integration tests run without cached results and appear in the logs. No local `.env`, Docker Compose stack, or Temporal server is required by this job. Pool unit tests cover invalid DSNs and credential redaction; Application tests cover domain validation, repository error classification, round-trips, duplicate request IDs, and concurrent inserts. Most existing service test files remain placeholders.
 

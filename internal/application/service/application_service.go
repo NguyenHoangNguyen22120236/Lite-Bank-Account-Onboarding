@@ -15,6 +15,7 @@ import (
 
 // Repository is the persistence subset needed by application operations.
 type Repository interface {
+	SubmitIdentity(context.Context, domain.Identity) (domain.Application, error)
 	AcceptTerms(context.Context, domain.TermsAcceptance) error
 	Create(context.Context, domain.Application) error
 	GetByRequestID(context.Context, uuid.UUID) (domain.Application, error)
@@ -26,6 +27,27 @@ type Service struct {
 
 func New(repository Repository) *Service {
 	return &Service{repository: repository}
+}
+
+func (s *Service) SubmitIdentity(ctx context.Context, applicationID string, input *domain.Identity) (domain.Application, error) {
+	id, err := uuid.Parse(applicationID)
+	if err != nil || id == uuid.Nil {
+		return domain.Application{}, ErrInvalidApplicationID
+	}
+	if err := domain.ValidateIdentityStructure(input); err != nil {
+		return domain.Application{}, err
+	}
+	i := *input
+	i.ApplicationID, i.CreatedAt = id, time.Now().UTC()
+	if input.Email != nil {
+		email := *input.Email
+		i.Email = &email
+	}
+	app, err := s.repository.SubmitIdentity(ctx, i)
+	if err != nil {
+		return domain.Application{}, fmt.Errorf("submit identity: %w", err)
+	}
+	return app, nil
 }
 
 func (s *Service) StartApplication(ctx context.Context, requestID string) (domain.Application, error) {

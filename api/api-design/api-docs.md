@@ -62,7 +62,36 @@ deadlines return `Canceled` and `DeadlineExceeded`. No Temporal workflow starts.
 
 ### API 3 — SubmitIdentity
 
-**Purpose**: Submit customer identity details and initiate the asynchronous account-opening workflow.
+**Purpose**: Validate and persist customer identity details for asynchronous account opening.
+
+PR 05 implements validation and persistence only. Workflow startup will be
+implemented in **PR 06**; a successful first submission remains at
+`APPLICATION_STATUS_PENDING_WORKFLOW_START` until that functionality is available.
+
+`application_id` must be a non-nil UUID and `identity` must be present. ID number
+must contain exactly 12 ASCII digits, full name must be nonblank, and phone must
+be nonblank with at most 20 Unicode characters. String fields must contain no NUL.
+Dates must be real calendar dates in strict `YYYY-MM-DD` form, with year at least 1.
+The applicant must be at least 18 and ID expiry must be strictly later than today,
+using UTC calendar dates. February 29 birthdays reach the next age on March 1 in
+non-leap years. No additional phone or email format validation is imposed.
+
+Identity insertion and the transition from `PENDING_IDENTITY_SUBMISSION` to
+`PENDING_WORKFLOW_START` commit atomically under an application-row lock. Submitted
+values are preserved exactly, including whitespace, case, and absent versus present
+empty email. Replaying the exact stored identity at a progressed status returns the
+persisted current application status without writes, even if the ID has since
+expired. Structural validation still applies; current age/expiry checks apply only
+to first submissions. Changing any identity field, including expiry or email
+presence, conflicts. This API does not edit an already submitted identity.
+
+Invalid input returns `InvalidArgument`; missing application returns `NotFound`;
+conflicting identity returns `AlreadyExists`. Invalid transitions, including an
+identity already present at either pre-submission status, return
+`FailedPrecondition` without repairing data. Database failures return sanitized
+`Internal` errors; cancellation and deadlines return `Canceled` and
+`DeadlineExceeded`. Successful responses contain the persisted application ID and
+status.
 
 #### Request
 
@@ -86,7 +115,7 @@ SubmitIdentityResponse {
 
 ```json
 {
-  "application_id": "APP-001",
+  "application_id": "58ad37d4-7256-4416-9948-2c0e5cbad837",
   "identity": {
     "id_number": "079123456789",
     "full_name": "Nguyen Van A",
@@ -102,7 +131,7 @@ SubmitIdentityResponse {
 
 ```json
 {
-  "application_id": "APP-001",
+  "application_id": "58ad37d4-7256-4416-9948-2c0e5cbad837",
   "status": "APPLICATION_STATUS_PENDING_WORKFLOW_START"
 }
 ```

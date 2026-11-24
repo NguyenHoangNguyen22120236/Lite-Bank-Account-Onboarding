@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.8.0] - 2026-11-24
+
+SubmitIdentity validation and persistence (PR 05).
+
+### Added
+
+- SubmitIdentity through ConnectRPC, service, domain rules, and PostgreSQL, validating application UUIDs, required identity fields, 12-digit ID numbers, calendar dates, adult age, and ID expiry using UTC dates.
+- Atomic identity insertion and transition from PENDING_IDENTITY_SUBMISSION to PENDING_WORKFLOW_START, serialized by an application-row lock.
+- Exact identity replay without writes at progressed states, including after later expiry; changed submissions and invalid states are rejected. Responses return persisted application status and database errors are sanitized.
+- Optional email presence is preserved: absent and present empty email remain distinct.
+- Pure domain tests, concise service tests, and focused ConnectRPC-to-PostgreSQL tests for persistence, replay, conflicts, invalid states, concurrent submissions, and error mappings.
+
+### Changed
+
+- Terms-related domain errors now live alongside terms acceptance logic, matching identity error organization.
+- API, database, sequence, and README documentation describe submission behavior and explicitly defer workflow startup to PR 06.
+- VERSION advances to 0.8.0.
+
+### Implementation Status
+
+- No protobuf, generated-code, schema, migration, or dependency changes. Temporal clients, workflow startup, workers, activities, and recovery scanners remain outside PR 05.
+- Full Go tests, live PostgreSQL integration tests, and go vet passed during implementation; subsequent constructor simplification passed the full Go suite, and domain error relocation passed domain tests.
+- Local race verification remains blocked by GCC lacking 64-bit support; CI verification and final human review remain outstanding.
+
 ## [0.7.0] - 2026-11-23
 
 AcceptTerms API with atomic persistence and safe retries (PR 04).

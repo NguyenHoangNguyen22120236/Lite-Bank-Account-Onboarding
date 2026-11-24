@@ -62,6 +62,21 @@ terms; the per-term unique constraint alone does not enforce the API restriction
 
 At most one identity record per application; repeat applications by a customer are allowed.
 
+PR 05 SubmitIdentity locks the parent application row before reading identity or
+deciding a transition. The first valid submission inserts identity and advances
+`PENDING_IDENTITY_SUBMISSION` to `PENDING_WORKFLOW_START` in one transaction,
+using the same application-supplied UTC timestamp for identity creation and the
+application update. No schema change is required.
+
+At a progressed status, an exactly matching stored identity is a read-only replay
+returning the persisted application status. Equality includes every submitted
+field and distinguishes SQL NULL email from an empty email. Changed submissions
+conflict. An identity present at either pre-submission status, or a missing identity
+at a progressed status, is an invalid state and is not repaired. Current expiry
+and age checks apply only to first submissions, so later expiration does not break
+durable replay. All identity writers must follow the same parent-lock protocol.
+Workflow startup will be implemented in **PR 06**; PR 05 does not start Temporal.
+
 ## application_reviews
 
 | Column | Type | Constraints / meaning |

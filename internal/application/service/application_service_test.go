@@ -19,6 +19,10 @@ type repositoryStub struct {
 	get    func(context.Context, uuid.UUID) (domain.Application, error)
 }
 
+func (r repositoryStub) SubmitIdentity(context.Context, domain.Identity) (domain.Application, error) {
+	panic("unexpected SubmitIdentity call")
+}
+
 func (r repositoryStub) AcceptTerms(context.Context, domain.TermsAcceptance) error {
 	panic("unexpected AcceptTerms call")
 }
