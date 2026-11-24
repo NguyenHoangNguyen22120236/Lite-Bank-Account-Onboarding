@@ -19,14 +19,17 @@ type Repository interface {
 	AcceptTerms(context.Context, domain.TermsAcceptance) error
 	Create(context.Context, domain.Application) error
 	GetByRequestID(context.Context, uuid.UUID) (domain.Application, error)
+	GetByID(context.Context, uuid.UUID) (domain.Application, error)
+	ResolveWorkflowStart(context.Context, uuid.UUID, domain.ApplicationStatus, time.Time) (domain.Application, error)
 }
 
 type Service struct {
 	repository Repository
+	starter    WorkflowStarter
 }
 
-func New(repository Repository) *Service {
-	return &Service{repository: repository}
+func New(repository Repository, starter WorkflowStarter) *Service {
+	return &Service{repository: repository, starter: starter}
 }
 
 func (s *Service) SubmitIdentity(ctx context.Context, applicationID string, input *domain.Identity) (domain.Application, error) {
@@ -47,7 +50,7 @@ func (s *Service) SubmitIdentity(ctx context.Context, applicationID string, inpu
 	if err != nil {
 		return domain.Application{}, fmt.Errorf("submit identity: %w", err)
 	}
-	return app, nil
+	return s.startWorkflow(ctx, app)
 }
 
 func (s *Service) StartApplication(ctx context.Context, requestID string) (domain.Application, error) {

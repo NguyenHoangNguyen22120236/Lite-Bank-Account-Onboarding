@@ -14,8 +14,10 @@ import (
 	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/application/handler"
 	applicationpostgres "github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/application/repository/postgres"
 	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/application/service"
+	applicationworkflow "github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/application/workflow"
 	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/platform/config"
 	platformpostgres "github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/platform/postgres"
+	platformtemporal "github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/platform/temporal"
 )
 
 func main() {
@@ -38,9 +40,17 @@ func run() error {
 		return err
 	}
 	defer pool.Close()
+	temporalConfig := platformtemporal.FromEnv()
+	temporalCtx, temporalCancel := context.WithTimeout(ctx, 10*time.Second)
+	temporalClient, err := platformtemporal.Open(temporalCtx, temporalConfig)
+	temporalCancel()
+	if err != nil {
+		return err
+	}
+	defer temporalClient.Close()
 
 	mux := http.NewServeMux()
-	applicationHandler := handler.New(service.New(applicationpostgres.New(pool)))
+	  := handler.New(service.New(applicationpostgres.New(pool), applicationworkflow.New(temporalClient, temporalConfig.TaskQueue)))
 
 	path, rpcHandler :=
 		onboardingv1connect.NewApplicationServiceHandler(applicationHandler)

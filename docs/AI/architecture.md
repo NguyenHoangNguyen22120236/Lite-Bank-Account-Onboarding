@@ -1,5 +1,15 @@
 # High Level Architecture
 
+## Local PR 06 implementation
+
+The cloud diagram below remains the later deployment target. Locally Main BE and
+the worker use the existing Compose Temporal dev server. Main BE injects a
+consumer-owned WorkflowStarter port implemented by its Temporal client adapter;
+the domain remains independent of transport. `internal/application/workflow`
+contains that startup adapter, while `internal/workflow` contains worker-executed
+deterministic code. Both use task queue `bank-onboarding` by default. Main BE owns
+all application database writes; worker workflow code currently only waits durably.
+
 ```mermaid
 flowchart LR
     Actor["🧍 Actor"]

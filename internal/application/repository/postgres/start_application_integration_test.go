@@ -26,7 +26,7 @@ func TestIntegrationStartApplication(t *testing.T) {
 	call := func(input string) *httptest.ResponseRecorder {
 		t.Helper()
 		// Fresh instances prove replay depends on PostgreSQL rather than process memory.
-		_, rpc := onboardingv1connect.NewApplicationServiceHandler(handler.New(service.New(r)))
+		_, rpc := onboardingv1connect.NewApplicationServiceHandler(handler.New(service.New(r, nil)))
 		body, err := protojson.Marshal(&onboardingv1.StartApplicationRequest{RequestId: input})
 		if err != nil {
 			t.Fatal(err)

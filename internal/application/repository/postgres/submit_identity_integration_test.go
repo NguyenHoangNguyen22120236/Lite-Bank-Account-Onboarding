@@ -28,8 +28,14 @@ func identityPayload() *onboardingv1.IdentityInfo {
 }
 
 // Fresh layers exercise the generated Connect route without an HTTP listener.
+type acceptedWorkflowStarter struct{}
+
+func (acceptedWorkflowStarter) EnsureStarted(context.Context, string, string) (service.WorkflowStartOutcome, error) {
+	return service.WorkflowStartEstablished, nil
+}
+
 func submitIdentityRPC(ctx context.Context, db DB, id string, identity *onboardingv1.IdentityInfo) *httptest.ResponseRecorder {
-	_, rpc := onboardingv1connect.NewApplicationServiceHandler(handler.New(service.New(New(db))))
+	_, rpc := onboardingv1connect.NewApplicationServiceHandler(handler.New(service.New(New(db), acceptedWorkflowStarter{})))
 	body, err := protojson.Marshal(&onboardingv1.SubmitIdentityRequest{ApplicationId: id, Identity: identity})
 	if err != nil {
 		panic(err)
@@ -132,7 +138,7 @@ func TestIntegrationSubmitIdentityPersistenceAndReplay(t *testing.T) {
 			}
 			terms := readTerms(t, ctx, pool, app.ApplicationID)
 			before := time.Now().UTC().Truncate(time.Microsecond)
-			assertIdentityRPC(t, submitIdentityRPC(ctx, pool, app.ApplicationID.String(), input), app.ApplicationID, domain.ApplicationStatusPendingWorkflowStart, "")
+			assertIdentityRPC(t, submitIdentityRPC(ctx, pool, app.ApplicationID.String(), input), app.ApplicationID, domain.ApplicationStatusPendingIdentityVerification, "")
 			stored := readIdentity(t, ctx, pool, app.ApplicationID)
 			if stored == nil {
 				t.Fatal("identity missing after success")
@@ -141,11 +147,15 @@ func TestIntegrationSubmitIdentityPersistenceAndReplay(t *testing.T) {
 			if !reflect.DeepEqual(stored, want) || stored.CreatedAt.Before(before) || stored.CreatedAt.After(time.Now()) {
 				t.Fatal("identity fields, optional email, or timestamp incorrect")
 			}
-			app.Status, app.UpdatedAt = domain.ApplicationStatusPendingWorkflowStart, stored.CreatedAt
+			app.Status = domain.ApplicationStatusPendingIdentityVerification
 			got, err := New(pool).GetByID(ctx, app.ApplicationID)
 			if err != nil {
 				t.Fatal(err)
 			}
+			if got.UpdatedAt.Before(stored.CreatedAt) || got.UpdatedAt.After(time.Now()) {
+				t.Fatal("startup transition timestamp outside submission interval")
+			}
+			app.UpdatedAt = got.UpdatedAt
 			assertApplication(t, got, app)
 			assertIdentityRPC(t, submitIdentityRPC(ctx, pool, app.ApplicationID.String(), input), app.ApplicationID, app.Status, "")
 			if !reflect.DeepEqual(readIdentity(t, ctx, pool, app.ApplicationID), stored) {
@@ -264,7 +274,7 @@ func TestIntegrationSubmitIdentityConcurrent(t *testing.T) {
 				if response.Code == http.StatusOK {
 					successes++
 					winner = i
-					assertIdentityRPC(t, response, app.ApplicationID, domain.ApplicationStatusPendingWorkflowStart, "")
+					assertIdentityRPC(t, response, app.ApplicationID, domain.ApplicationStatusPendingIdentityVerification, "")
 				} else {
 					assertIdentityRPC(t, response, app.ApplicationID, "", "already_exists")
 				}
@@ -280,11 +290,15 @@ func TestIntegrationSubmitIdentityConcurrent(t *testing.T) {
 			if stored == nil || stored.Name != inputs[winner].FullName {
 				t.Fatal("winning identity not preserved")
 			}
-			app.Status, app.UpdatedAt = domain.ApplicationStatusPendingWorkflowStart, stored.CreatedAt
+			app.Status = domain.ApplicationStatusPendingIdentityVerification
 			got, err := New(pool).GetByID(ctx, app.ApplicationID)
 			if err != nil {
 				t.Fatal(err)
 			}
+			if got.UpdatedAt.Before(stored.CreatedAt) || got.UpdatedAt.After(time.Now()) {
+				t.Fatal("startup transition timestamp outside submission interval")
+			}
+			app.UpdatedAt = got.UpdatedAt
 			assertApplication(t, got, app)
 		})
 	}

@@ -39,7 +39,7 @@ func TestAcceptTermsValidation(t *testing.T) {
 				t.Fatal("invalid input reached repository")
 				return nil
 			}}
-			if err := New(r).AcceptTerms(context.Background(), tc.id, tc.term); !errors.Is(err, tc.want) {
+			if err := New(r, nil).AcceptTerms(context.Background(), tc.id, tc.term); !errors.Is(err, tc.want) {
 				t.Fatalf("got %v, want %v", err, tc.want)
 			}
 		})
@@ -64,7 +64,7 @@ func TestAcceptTermsPersistence(t *testing.T) {
 				}
 				return nil
 			}}
-			err := New(r).AcceptTerms(ctx, id.String(), " V1 ")
+			err := New(r, nil).AcceptTerms(ctx, id.String(), " V1 ")
 			if calls != 1 || !errors.Is(err, cause) {
 				t.Fatalf("calls=%d, error=%v; want %v", calls, err, cause)
 			}

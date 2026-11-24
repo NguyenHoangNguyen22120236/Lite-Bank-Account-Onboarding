@@ -75,7 +75,12 @@ conflict. An identity present at either pre-submission status, or a missing iden
 at a progressed status, is an invalid state and is not repaired. Current expiry
 and age checks apply only to first submissions, so later expiration does not break
 durable replay. All identity writers must follow the same parent-lock protocol.
-Workflow startup will be implemented in **PR 06**; PR 05 does not start Temporal.
+PR 06 starts Temporal after this transaction commits. Exact identity replay at
+`PENDING_WORKFLOW_START` can retry startup using the stored workflow ID. Following
+confirmed startup, a separate parent-row-locked transaction conditionally advances
+pending-start to pending identity verification (or `FAILED_TECHNICAL` for confirmed
+unsuccessful closure). It preserves every field when status has already advanced.
+Identity and its creation timestamp are never changed by startup outcomes.
 
 ## application_reviews
 

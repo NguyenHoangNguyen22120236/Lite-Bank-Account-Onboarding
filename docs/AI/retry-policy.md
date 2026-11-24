@@ -1,5 +1,29 @@
 # Downstream Call Retry Policy
 
+## PR 06 workflow startup exception
+
+SubmitIdentity commits identity and `PENDING_WORKFLOW_START` before contacting
+Temporal. Startup and duplicate description share one request-derived three-second
+budget (an earlier caller deadline wins). There is no application retry loop;
+SDK transport retries remain within that deadline. Workflow execution retries are
+not configured. This is separate from the downstream activity policy below.
+
+New/running executions conditionally advance pending-start to pending identity
+verification. Confirmed failed, canceled, terminated, or timed-out executions
+conditionally advance pending-start to `FAILED_TECHNICAL` and return
+`FailedPrecondition`. A completed execution requires a fresh application read:
+`COMPLETED` or `REJECTED` returns unchanged; other states are inconsistent and
+return `FailedPrecondition` without writes. Workflow completion does not establish
+identity verification.
+
+Unavailable/uncertain starts preserve identity and pending-start. Clients may
+retry the exact submission with the same persisted workflow ID. Deadline and
+cancellation map to their corresponding API codes, temporary unavailability to
+`Unavailable`, and configuration or database errors to sanitized `Internal`.
+Database failure after accepted startup also permits this safe client retry.
+Conditional status writes preserve states advanced by another writer. No recovery
+scanner or restart of a closed execution is implemented.
+
 This document separates **business decisions** (reject/approve/review) from **technical failures** (timeouts, temporary unavailability, invalid credentials). It accompanies docs/AI/onboarding-sequence.md
 
 ## Error classification and next action
