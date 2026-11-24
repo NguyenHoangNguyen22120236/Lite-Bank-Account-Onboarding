@@ -2,11 +2,13 @@
 
 The Mermaid diagram below transcribes the principal interactions visible in the supplied **Full Creating Account Process (Happy Case)** sequence diagram. It focuses on the happy path; failure handling is documented separately in docs/AI/retry-policy.md
 
-PR 05 ends SubmitIdentity after atomically persisting identity and
-`PENDING_WORKFLOW_START`, returning that persisted status to the caller. It does
-not start Temporal. Workflow startup will be implemented in **PR 06**; the Temporal
-interactions below describe the intended later behavior. Exact identity retries
-return current persisted status without modifying identity or application data.
+PR 06 starts Temporal after PR 05's atomic identity/pending-start commit. Exact
+identity retries at pending-start attempt the same workflow ID again; other
+progressed states return unchanged. Accepted startup conditionally advances to
+`PENDING_IDENTITY_VERIFICATION`. Startup failure never rolls back identity.
+The local worker runs only a deterministic durable wait with no activities.
+The business activity interactions below remain future behavior. Detailed startup
+errors and completed-execution reconciliation are in `retry-policy.md`.
 
 ```mermaid
 sequenceDiagram

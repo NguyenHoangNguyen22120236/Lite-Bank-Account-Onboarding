@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.9.0] - 2026-11-24
+
+Temporal workflow startup (PR 06).
+
+### Added
+
+- Injected Temporal startup adapter for SubmitIdentity, called after identity persistence and using the stored application ID as workflow ID.
+- REJECT_DUPLICATE and USE_EXISTING policies with duplicate errors preserved for closed-execution classification; start and describe share a three-second request-derived budget without an application retry loop.
+- Conditional, parent-row-locked startup status updates that preserve concurrent application progress, plus reconciliation of completed executions against persisted application state.
+- Safe client retries after uncertain startup or post-start database failure, preserving identity data; sanitized API errors for unavailable startup and workflow reconciliation failures.
+- Local worker registering a minimal deterministic workflow that waits durably without business activities, with graceful shutdown and shared bank-onboarding task queue configuration.
+- Focused startup, idempotency, failure recovery, conditional transition, concurrency, and durable-wait tests.
+
+### Changed
+
+- Main BE connects to Temporal through dependency injection with a ten-second connection deadline and managed client lifecycle.
+- Pin Temporal Go SDK v1.51.0 and API v1.64.3; align transitive dependencies, including genproto modules.
+- Update existing service constructors and identity integration tests for post-persistence startup behavior while retaining identity validation and replay guarantees.
+- Document local Temporal configuration, worker startup, error handling, retention limits, and deferred recovery behavior.
+- VERSION advances to 0.9.0.
+
+### Implementation Status
+
+- Go tests, including live PostgreSQL integration tests, and go vet passed during implementation. Local race verification remains blocked by the installed C compiler lacking 64-bit support.
+- Live Temporal startup and worker-restart smoke tests, CI verification, and final human review remain outstanding.
+- No protobuf, generated-code, schema, or migration changes. Business activities, sanctions screening, account creation, human review, and recovery scanners remain deferred.
+
 ## [0.8.0] - 2026-11-24
 
 SubmitIdentity validation and persistence (PR 05).

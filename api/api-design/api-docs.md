@@ -64,9 +64,19 @@ deadlines return `Canceled` and `DeadlineExceeded`. No Temporal workflow starts.
 
 **Purpose**: Validate and persist customer identity details for asynchronous account opening.
 
-PR 05 implements validation and persistence only. Workflow startup will be
-implemented in **PR 06**; a successful first submission remains at
-`APPLICATION_STATUS_PENDING_WORKFLOW_START` until that functionality is available.
+PR 06 starts Temporal after identity and `PENDING_WORKFLOW_START` commit. New or
+already-running startup conditionally advances to `PENDING_IDENTITY_VERIFICATION`.
+Exact retries while pending-start use the same persisted workflow ID. At other
+progressed statuses, replay remains read-only and returns the current status.
+Startup uses a three-second total budget without an application retry loop.
+Uncertain failures retain identity and pending-start for a safe client retry;
+they return `Unavailable`, `DeadlineExceeded`, or `Canceled`. Configuration and
+database failures return sanitized `Internal`. Confirmed unsuccessful workflow
+closure conditionally records `FAILED_TECHNICAL` and returns `FailedPrecondition`.
+Already-completed workflows require reconciliation with persisted application
+state: `COMPLETED`/`REJECTED` return unchanged; other states return
+`FailedPrecondition` without advancing them. Concurrently progressed statuses
+are never overwritten. Workflow completion does not mean identity verification.
 
 `application_id` must be a non-nil UUID and `identity` must be present. ID number
 must contain exactly 12 ASCII digits, full name must be nonblank, and phone must
@@ -79,8 +89,9 @@ non-leap years. No additional phone or email format validation is imposed.
 Identity insertion and the transition from `PENDING_IDENTITY_SUBMISSION` to
 `PENDING_WORKFLOW_START` commit atomically under an application-row lock. Submitted
 values are preserved exactly, including whitespace, case, and absent versus present
-empty email. Replaying the exact stored identity at a progressed status returns the
-persisted current application status without writes, even if the ID has since
+empty email. Replaying the exact stored identity leaves identity unchanged and,
+except for pending-start startup reconciliation, returns the persisted current
+application status without writes, even if the ID has since
 expired. Structural validation still applies; current age/expiry checks apply only
 to first submissions. Changing any identity field, including expiry or email
 presence, conflicts. This API does not edit an already submitted identity.
@@ -132,7 +143,7 @@ SubmitIdentityResponse {
 ```json
 {
   "application_id": "58ad37d4-7256-4416-9948-2c0e5cbad837",
-  "status": "APPLICATION_STATUS_PENDING_WORKFLOW_START"
+  "status": "APPLICATION_STATUS_PENDING_IDENTITY_VERIFICATION"
 }
 ```
 

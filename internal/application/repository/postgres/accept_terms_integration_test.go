@@ -23,7 +23,7 @@ import (
 
 // Each call constructs fresh layers; no HTTP listener or process-local replay cache.
 func acceptTermsRPC(ctx context.Context, pool *pgxpool.Pool, id, term string) *httptest.ResponseRecorder {
-	_, rpc := onboardingv1connect.NewApplicationServiceHandler(handler.New(service.New(New(pool))))
+	_, rpc := onboardingv1connect.NewApplicationServiceHandler(handler.New(service.New(New(pool), nil)))
 	body, err := protojson.Marshal(&onboardingv1.AcceptTermsRequest{ApplicationId: id, TermId: term})
 	if err != nil {
 		panic(err)

@@ -44,7 +44,7 @@ func TestSubmitIdentityValidation(t *testing.T) {
 				t.Fatal("invalid input reached persistence")
 				return domain.Application{}, nil
 			}}
-			got, err := New(r).SubmitIdentity(context.Background(), tc.id, tc.identity)
+			got, err := New(r, nil).SubmitIdentity(context.Background(), tc.id, tc.identity)
 			if !errors.Is(err, tc.want) || got != (domain.Application{}) {
 				t.Fatalf("got %+v, %v; want %v", got, err, tc.want)
 			}
@@ -79,7 +79,7 @@ func TestSubmitIdentityPersistence(t *testing.T) {
 				}
 				return want, nil
 			}}
-			got, err := New(r).SubmitIdentity(ctx, id.String(), input)
+			got, err := New(r, nil).SubmitIdentity(ctx, id.String(), input)
 			if calls != 1 || !errors.Is(err, cause) {
 				t.Fatalf("calls=%d, error=%v", calls, err)
 			}
