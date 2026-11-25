@@ -171,6 +171,99 @@ VerifyIdentityResponse {
 }
 ```
 
+PR 07 implements `/onboarding.v1.ThirdPartyService/VerifyIdentity` through a
+ConnectRPC handler, service, and injected mock provider. It does not persist
+results or change application state.
+
+The intended internal protocol is **gRPC over HTTP/2**, served by the existing
+generated ConnectRPC handler. Locally, port `8081` accepts unencrypted HTTP/2
+(h2c); HTTP/1 remains available for `/health`. No separate REST endpoint or native
+gRPC handler is introduced. Generated Go clients select gRPC with
+`connect.WithGRPC()` and use an HTTP/2-capable transport.
+
+`identity` must be present. ID number must contain exactly 12 ASCII digits;
+name and phone must be nonblank, with phone at most 20 Unicode characters.
+All strings must be valid UTF-8 and NUL-free. Dates must be real calendar dates
+in strict `YYYY-MM-DD` form with year at least 1. Email is optional without
+format validation. Values are preserved exactly. Age and current expiry
+eligibility remain Main BE rules; this API uses no clock.
+
+The mock contains seven synthetic government records:
+
+| ID number | Full name | Date of birth | ID expiry date |
+|---|---|---|---|
+| `000000000001` | `Mock Citizen` | `1990-01-01` | `2040-01-01` |
+| `000000000002` | `Mock Citizen Two` | `1985-06-15` | `2041-06-15` |
+| `000000000003` | `Mock Citizen Three` | `1995-03-20` | `2042-03-20` |
+| `000000000004` | `Mock Citizen Four` | `2000-09-10` | `2043-09-10` |
+| `000000000005` | `Mock Citizen Five` | `1988-12-25` | `2044-12-25` |
+| `000000000006` | `Mock Citizen Six` | `1992-02-29` | `2044-02-29` |
+| `079123456789` | `Nguyenfsdfsdfsdfsdf Van A` | `2000-05-15` | `2032-05-15` |
+
+All four fields must match exactly. Unknown IDs or mismatches return RPC success
+with `verified=false`, a business verification failure. No trimming or case
+normalization occurs: ` Mock Citizen ` is structurally valid but does not match.
+Phone and email do not affect matching. Immutable fixture data makes duplicate
+and concurrent calls safe without idempotency keys.
+
+| Condition | Connect result |
+|---|---|
+| Exact mock match | Success, `verified=true` |
+| Unknown ID or field mismatch | Success, `verified=false` |
+| Missing or malformed identity | `InvalidArgument`, provider not called |
+| Caller cancellation / deadline | `Canceled` / `DeadlineExceeded` |
+| Provider unavailable | `Unavailable` |
+| Other technical failure | `Internal` |
+
+Technical errors are sanitized and take precedence over any boolean result.
+The caller context is forwarded without retries. Technical failures are tested
+with injected provider fakes, rather than special IDs. ScreenSanctions remains
+unimplemented.
+
+Example request:
+
+```json
+{
+  "identity": {
+    "id_number": "000000000001",
+    "full_name": "Mock Citizen",
+    "date_of_birth": "1990-01-01",
+    "id_expiry_date": "2040-01-01",
+    "phone_number": "0900000000"
+  }
+}
+```
+
+Example response: `{"verified":true}`. Changing the ID to `000000000999`
+produces `verified=false` without an RPC error (the default false field may be
+omitted in protobuf JSON).
+
+Corresponding requests for the other six records (send each object separately):
+
+```json
+{"identity":{"idNumber":"000000000002","fullName":"Mock Citizen Two","dateOfBirth":"1985-06-15","idExpiryDate":"2041-06-15","phoneNumber":"0900000000"}}
+```
+
+```json
+{"identity":{"idNumber":"000000000003","fullName":"Mock Citizen Three","dateOfBirth":"1995-03-20","idExpiryDate":"2042-03-20","phoneNumber":"0900000000"}}
+```
+
+```json
+{"identity":{"idNumber":"000000000004","fullName":"Mock Citizen Four","dateOfBirth":"2000-09-10","idExpiryDate":"2043-09-10","phoneNumber":"0900000000"}}
+```
+
+```json
+{"identity":{"idNumber":"000000000005","fullName":"Mock Citizen Five","dateOfBirth":"1988-12-25","idExpiryDate":"2044-12-25","phoneNumber":"0900000000"}}
+```
+
+```json
+{"identity":{"idNumber":"000000000006","fullName":"Mock Citizen Six","dateOfBirth":"1992-02-29","idExpiryDate":"2044-02-29","phoneNumber":"0900000000"}}
+```
+
+```json
+{"identity":{"idNumber":"079123456789","fullName":"Nguyenfsdfsdfsdfsdf Van A","dateOfBirth":"2000-05-15","idExpiryDate":"2032-05-15","phoneNumber":"0901234567","email":"example@email.com"}}
+```
+
 ### API 5 — ScreenSanctions
 
 **Purpose**: Check whether the identity requires further sanctions review.
