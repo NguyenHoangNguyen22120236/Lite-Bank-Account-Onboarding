@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.10.0] - 2026-11-25
+
+Third-party VerifyIdentity API (PR 07).
+
+### Added
+
+- VerifyIdentity through the generated ConnectRPC handler, transport-independent service/domain, and an injected mock provider.
+- Structural identity validation preserving submitted values; age and current expiry eligibility remain Main BE responsibilities.
+- Seven deterministic synthetic identity records, matched exactly by ID number, full name, birth date, and ID expiry; contact fields do not affect verification.
+- Business mismatches return `verified=false`; validation, cancellation, deadlines, provider unavailability, and unexpected failures return distinct sanitized RPC errors.
+- Concise domain, service, and mock tests plus a gRPC-over-HTTP/2 integration test covering success, rejection, invalid input, technical errors, and unimplemented sanctions screening.
+
+### Changed
+
+- Third-party server on port 8081 accepts unencrypted HTTP/2 (h2c) using the standard library, with a five-second read-header timeout. HTTP/1 is not enabled.
+- Document verification rules, mock fixtures, gRPC/Postman setup, and HTTP/2 health checks; ignore local VS Code configuration.
+- VERSION advances to 0.10.0.
+
+### Implementation Status
+
+- No protobuf, generated-code, dependency, database, or workflow changes. Sanctions screening, Temporal Activities, account creation, and result orchestration remain deferred.
+- Local Go tests and go vet passed during implementation; race verification remains blocked by the installed C compiler lacking 64-bit support. CI verification and final human review remain outstanding.
+
 ## [0.9.0] - 2026-11-24
 
 Temporal workflow startup (PR 06).

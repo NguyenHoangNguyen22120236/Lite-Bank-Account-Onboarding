@@ -1,5 +1,17 @@
 # Downstream Call Retry Policy
 
+## PR 07 standalone VerifyIdentity
+
+VerifyIdentity performs one provider call with the caller context and no retry
+loop. The immutable mock has no network calls or simulated outages. A mismatch
+returns RPC success with `verified=false`; the API does not itself reject or
+update an application. Invalid input returns `InvalidArgument` before provider
+invocation. Wrapped cancellation/deadline errors map to `Canceled`/
+`DeadlineExceeded`, provider unavailability to `Unavailable`, and unexpected
+failures to sanitized `Internal`. Errors take precedence over any boolean result.
+Future Temporal Activities will own the downstream retry policy below; they are
+not implemented by PR 07.
+
 ## PR 06 workflow startup exception
 
 SubmitIdentity commits identity and `PENDING_WORKFLOW_START` before contacting

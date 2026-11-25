@@ -1,5 +1,23 @@
 # High Level Architecture
 
+## Local PR 07 identity verification
+
+Third-party Service implements VerifyIdentity through ConnectRPC handler → service
+→ injected IdentityVerifier provider. Its domain identity and structural validation
+are independent of protobuf and Application Service persistence. The default
+provider compares seven fixed synthetic government records exactly; mismatches
+return `verified=false`, while technical failures return sanitized RPC errors.
+The mock has no mutable state, clock, or external I/O. The API performs no database
+writes; its server still listens on `:8081`. ScreenSanctions remains unimplemented.
+Temporal business activities and result orchestration remain deferred; the worker
+still waits durably.
+
+Internal VerifyIdentity calls use gRPC over HTTP/2 through the generated
+ConnectRPC handler. The local server enables unencrypted HTTP/2 (h2c) using
+Go's standard-library `http.Server.Protocols`; HTTP/1 remains enabled for health
+checks. Service and provider remain transport-independent. Deployment TLS
+configuration is deferred to the cloud phase.
+
 ## Local PR 06 implementation
 
 The cloud diagram below remains the later deployment target. Locally Main BE and

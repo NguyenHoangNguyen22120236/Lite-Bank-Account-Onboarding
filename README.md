@@ -2,7 +2,7 @@
 
 A Go backend training project for a lightweight bank account onboarding workflow. The API design covers starting an application, accepting terms, submitting identity details, verifying identity, screening sanctions, reviewing applications, and checking progress.
 
-Current version: **0.9.0** — Temporal workflow startup, safe client retries, conditional status transitions, and a local durable-wait worker (PR 06). See [CHANGELOG](CHANGELOG) for release details.
+Current version: **0.10.0** — Third-party VerifyIdentity over gRPC/HTTP/2, structural validation, and an injected deterministic mock provider (PR 07). See [CHANGELOG](CHANGELOG) for release details.
 
 The project uses Protocol Buffers and Connect RPC. StartApplication validates client request UUIDs, persists applications, and resolves retries durably using the unique request ID. AcceptTerms records acceptance and advances the application status atomically. SubmitIdentity validates customer identity, saves it, and advances status to `PENDING_WORKFLOW_START` in one transaction. Both operations use PostgreSQL row locks for concurrent requests and support durable replay. The application server manages its pgxpool lifecycle and loads local `.env` configuration. Remaining application RPCs are unimplemented. CI runs PostgreSQL integration tests against a disposable database using existing Goose migrations. Local PostgreSQL and Temporal Dev Server infrastructure is available through Docker Compose. PR 06 starts Temporal after identity persistence and conditionally records pending identity verification. The local worker runs a deterministic durable wait. Business activities, account operations, and human review remain deferred.
 
@@ -34,9 +34,10 @@ The project uses Protocol Buffers and Connect RPC. StartApplication validates cl
 |   |   |-- service/               # Application operations and consumer-owned dependency interfaces
 |   |   `-- workflow/              # Main BE Temporal startup adapter; distinct from worker workflow code
 |   `-- thirdparty/
-|       |-- handler/               # Third-party handler placeholders
-|       |-- mock/                  # Identity and sanctions mock placeholders
-|       `-- service/               # Third-party service placeholders
+|       |-- domain/                # Transport-independent identity and structural validation
+|       |-- handler/               # VerifyIdentity ConnectRPC handler
+|       |-- mock/                  # Immutable identity mock; sanctions placeholder
+|       `-- service/               # Identity verification with injected provider
 |-- buf.yaml                       # Protobuf module and lint configuration
 |-- buf.gen.yaml                   # Protobuf and Connect code generation
 |-- go.mod
@@ -60,6 +61,16 @@ Implemented application APIs:
 - **StartApplication:** creates an application in `PENDING_TERMS_ACCEPTANCE`; retries with the same request UUID return the existing application and current status.
 - **AcceptTerms:** validates a non-nil application UUID and a nonblank, NUL-free term ID. It preserves the exact term value, records acceptance, and advances to `PENDING_IDENTITY_SUBMISSION` in one transaction. Repeating the recorded term after progression returns `accepted=true` without changing data. Different terms conflict; invalid state transitions fail. This flow permits one distinct term per application, while the schema retains its one-to-many capability. Neither API starts Temporal.
 - **SubmitIdentity (PR 05–06):** validates identity and atomically saves it with `PENDING_WORKFLOW_START`, then attempts Temporal startup using the persisted workflow ID. New/running startup conditionally advances to `PENDING_IDENTITY_VERIFICATION`. Exact retries at pending-start retry startup; other progressed states return unchanged. Changed identity conflicts. Start and duplicate description share a three-second budget without an application retry loop. Uncertain failures preserve identity and pending-start for safe client retries; closed execution outcomes are reconciled without regressing application status.
+
+PR 07 implements **ThirdPartyService.VerifyIdentity** over gRPC/HTTP/2 on port `8081` using a
+replaceable mock provider with seven synthetic records. For example, `000000000001`, `Mock Citizen`,
+`1990-01-01`, `2040-01-01` verifies when all four fields match exactly; unknown IDs
+or mismatches return `verified=false`. Phone and email do not affect matching.
+Input receives structural validation; age/current expiry eligibility stays in
+Main BE. Technical errors return sanitized RPC errors, without retries or database
+writes. See API 4 in the [API documentation](api/api-design/api-docs.md) for the
+complete rules and request example. ScreenSanctions and Temporal business
+activities remain deferred.
 
 ## Design Documentation
 
@@ -255,14 +266,47 @@ Start the third-party service in another terminal:
 go run ./cmd/thirdparty
 ```
 
+For manual VerifyIdentity testing, create a **gRPC request** in Postman targeting
+`localhost:8081` with TLS disabled. Import
+`api/proto/onboarding/v1/third_party.proto` and set the import root to `api/proto`
+so `onboarding/v1/application.proto` resolves. Select
+`onboarding.v1.ThirdPartyService/VerifyIdentity` and use a request from
+[API 4](api/api-design/api-docs.md#api-4--verifyidentity). Import the proto instead
+of using server reflection, which is not configured. Postman's JSON-shaped
+message editor is encoded as protobuf over gRPC. Use the original protobuf field
+names in Postman, for example:
+
+```json
+{
+  "identity": {
+    "id_number": "000000000001",
+    "full_name": "Mock Citizen",
+    "date_of_birth": "1990-01-01",
+    "id_expiry_date": "2040-01-01",
+    "phone_number": "0900000000"
+  }
+}
+```
+
+The seventh mock record is `079123456789`, `Nguyen Van A`, `2000-05-15`,
+`2032-05-15`; use these values exactly when testing it.
+The local server accepts HTTP/2 only, without TLS (h2c), and the integration test
+uses `connect.WithGRPC()` over HTTP/2.
+Verify an exact record (`verified=true`), an unknown ID (`verified=false`), and
+malformed input (`InvalidArgument`). The service performs no provider retries or
+application-state writes. ScreenSanctions still returns `Unimplemented`.
+
 Check both services from Bash or a macOS terminal:
 
 ```sh
 curl -fsS http://localhost:8080/health; printf '\n'
-curl -fsS http://localhost:8081/health; printf '\n'
+curl --http2-prior-knowledge -fsS http://localhost:8081/health; printf '\n'
 ```
 
 Expected responses are `application service healthy` and `third-party service healthy`. These checks confirm that the HTTP servers are running; the workflow currently waits durably without business activities. Stop each server with `Ctrl+C` in its terminal.
+
+The third-party check requires a curl build with HTTP/2 support; ordinary HTTP/1
+requests will fail. On PowerShell, use `curl.exe` to avoid the `curl` alias.
 
 Generated code is already included. If you change protobuf contracts later, install the Buf CLI and regenerate bindings with `buf generate` from the repository root. Generation uses the remote plugins configured in `buf.gen.yaml` and requires network access.
 
@@ -279,7 +323,7 @@ Shutdown removes the containers and network while preserving the `postgres_data`
 
 The Makefile provides `proto`, `lint`, `fmt`, `vet`, `test`, `test-race`, `build`, and `ci` targets. With Make installed, `make run-app` and `make run-thirdparty` start the existing HTTP servers.
 
-All four commands have `main` functions and are buildable. Account has an empty entry point; Worker polls Temporal and registers the durable waiting workflow. Application implements StartApplication, AcceptTerms, and SubmitIdentity with PostgreSQL persistence; its remaining RPCs and all third-party RPCs return Unimplemented. PR 06 workflow startup is implemented; business activities remain deferred.
+All four commands have `main` functions and are buildable. Account has an empty entry point; Worker polls Temporal and registers the durable waiting workflow. Application implements StartApplication, AcceptTerms, and SubmitIdentity with PostgreSQL persistence; its remaining RPCs return Unimplemented. Third-party implements VerifyIdentity using an injected mock provider; ScreenSanctions returns Unimplemented. PR 06 workflow startup is implemented; business activities remain deferred.
 
 GitHub Actions checks protobuf lint and generation consistency, Go formatting, static analysis, migration-file validation, race-enabled tests, and builds on pull requests and pushes to `main`. Each verification job starts a PostgreSQL `postgres:17.12` service container with a disposable `onboarding_test` database and a readiness health check. CI sets `TEST_DATABASE_URL` with fixed test-only credentials, applies the existing migrations through Goose, and runs `go test -race -count=1 -v ./...` so unit and PostgreSQL integration tests run without cached results and appear in the logs. No local `.env`, Docker Compose stack, or Temporal server is required by this job. Pool unit tests cover invalid DSNs and credential redaction; Application tests cover domain validation, repository error classification, round-trips, duplicate request IDs, and concurrent inserts. Startup tests cover Temporal options, deadline propagation, duplicate classification, safe retries, conditional status updates, and durable workflow waiting through the SDK test environment. Live Temporal smoke tests remain manual; local race verification is blocked by the installed C compiler lacking 64-bit support.
 
