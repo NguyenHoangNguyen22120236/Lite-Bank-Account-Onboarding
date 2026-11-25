@@ -29,6 +29,8 @@ jobs:
     env:
       # Disposable CI database; these credentials are not used outside this job.
       TEST_DATABASE_URL: postgres://onboarding:onboarding_ci@localhost:5432/onboarding_test?sslmode=disable
+      TEST_TEMPORAL_ADDRESS: localhost:7233
+      TEST_TEMPORAL_NAMESPACE: default
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -64,8 +66,33 @@ jobs:
           GOOSE_DBSTRING: ${{ env.TEST_DATABASE_URL }}
         run: go tool goose -env none -dir migrations up
 
-      - name: Unit and PostgreSQL integration tests with race detector
+      - name: Start test Temporal server
+        timeout-minutes: 3
+        run: |
+          docker run -d --name temporal-ci \
+            -p 127.0.0.1:7233:7233 \
+            temporalio/temporal:1.10.1 \
+            server start-dev --ip 0.0.0.0
+          for attempt in {1..30}; do
+            if docker exec temporal-ci temporal operator cluster health --address 127.0.0.1:7233; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Temporal did not become healthy in time"
+          docker logs temporal-ci
+          exit 1
+
+      - name: Unit, PostgreSQL, and Temporal integration tests with race detector
         run: go test -race -count=1 -v ./...
 
       - name: Build all packages
         run: go build ./...
+
+      - name: Clean up test Temporal server
+        if: always()
+        run: |
+          if docker container inspect temporal-ci > /dev/null 2>&1; then
+            docker logs temporal-ci
+            docker rm -f temporal-ci
+          fi
