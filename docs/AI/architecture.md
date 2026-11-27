@@ -1,5 +1,27 @@
 # High Level Architecture
 
+## Application transaction ownership
+
+AcceptTermsService and SubmitIdentityService own their transaction boundaries
+through the database-independent `service.Transactor.WithinTx(ctx, fn)` port.
+Inside the callback they lock the application, read associated records, invoke
+domain decisions, and coordinate the inserts and conditional status updates.
+Replay performs no writes. SubmitIdentity starts Temporal only after successful
+commit; workflow-start status reconciliation uses a separate service-owned
+transaction and preserves concurrently progressed application state.
+
+The PostgreSQL Transactor owns Begin, Commit, and cancellation-independent,
+bounded rollback cleanup. Its private callback-context binding lets
+ApplicationRepository use the same transaction and pool for the application
+aggregate, including identity and terms acceptance. Its implementation is split
+across application_repository.go, application_identity_repository.go, and
+application_terms_acceptance_repository.go. Each service defines only its
+consumed repository methods in SubmitIdentityRepository or AcceptTermsRepository.
+Transaction-required operations reject contexts
+without that binding. Repositories own SQL, scanning, date conversion, and
+sanitized database error mapping; domain rules remain in the domain package.
+The callback executes once, with no application-level transaction retry.
+
 ## Local PR 07 identity verification
 
 Third-party Service implements VerifyIdentity through ConnectRPC handler → service
