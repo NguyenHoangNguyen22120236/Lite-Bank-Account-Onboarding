@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.10.1] - 2026-11-27
+
+Application module structure and transaction ownership refactor.
+
+### Changed
+
+- Replace the shared application service with StartApplicationService, AcceptTermsService, and SubmitIdentityService, each with consumer-owned repository interfaces.
+- Organize implemented ConnectRPC methods and their narrow service interfaces in use-case files while retaining one Handler and constructor.
+- Consolidate identity and terms persistence under ApplicationRepository, with separate application_identity_repository.go and application_terms_acceptance_repository.go implementation files.
+- Move AcceptTerms and SubmitIdentity orchestration and transaction boundaries into services through the database-independent Transactor.WithinTx(ctx, fn) contract.
+- Centralize PostgreSQL transaction lifecycle management, context binding, cancellation-safe rollback cleanup, and database error mapping; all operations reuse the existing pool.
+- Update dependency injection, handwritten stubs, fixtures, and test organization for the focused services and aggregate repository.
+- Preserve domain rules, SQL, row locking, atomic status changes, durable replay, error mappings, and Temporal startup after successful identity commit.
+- Document the refactored architecture and advance VERSION to 0.10.1.
+
+### Added
+
+- Transactor and service tests for operation order, begin/commit/callback failures, panic rollback, cancellation-safe cleanup, shared transaction contexts, and concurrent context isolation.
+- PostgreSQL integration tests proving identity and terms inserts roll back when application status updates fail.
+- Makefile test-coverage and coverage-html targets; ignore the generated coverage.out profile.
+
+### Removed
+
+- Obsolete shared application service abstractions.
+- Placeholder TestOnboardingWaitsDurablyUntilCanceled test; live Temporal startup integration coverage remains.
+
+### Implementation Status
+
+- Go tests, PostgreSQL integration tests, go vet, and builds passed during the refactor. Local race verification remains blocked by the installed C compiler lacking 64-bit support.
+- No protobuf, generated-code, schema, migration, dependency, or runtime workflow behavior changes. CI verification and final human review remain outstanding.
+
 ## [0.10.0] - 2026-11-25
 
 Third-party VerifyIdentity API (PR 07).

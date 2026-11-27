@@ -28,7 +28,7 @@ type WorkflowStarter interface {
 	EnsureStarted(context.Context, string, string) (WorkflowStartOutcome, error)
 }
 
-func (s *Service) startWorkflow(ctx context.Context, app domain.Application) (domain.Application, error) {
+func (s *SubmitIdentityService) startWorkflow(ctx context.Context, app domain.Application) (domain.Application, error) {
 	if app.Status != domain.ApplicationStatusPendingWorkflowStart {
 		return app, nil
 	}
@@ -61,7 +61,19 @@ func (s *Service) startWorkflow(ctx context.Context, app domain.Application) (do
 	default:
 		return domain.Application{}, ErrWorkflowStartup
 	}
-	current, err := s.repository.ResolveWorkflowStart(ctx, app.ApplicationID, target, time.Now().UTC())
+	var current domain.Application
+	err = s.transactor.WithinTx(ctx, func(txCtx context.Context) error {
+		var err error
+		current, err = s.repository.GetByIDForUpdate(txCtx, app.ApplicationID)
+		if err != nil {
+			return err
+		}
+		if current.Status != domain.ApplicationStatusPendingWorkflowStart {
+			return nil
+		}
+		current, err = s.repository.ResolveWorkflowStart(txCtx, app.ApplicationID, target, time.Now().UTC())
+		return err
+	})
 	if err != nil {
 		return domain.Application{}, err
 	}

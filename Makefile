@@ -1,5 +1,5 @@
 
-.PHONY: proto lint fmt vet test test-race build \
+.PHONY: proto lint fmt vet test test-race test-coverage coverage-html build \
         ci up down logs run-app run-account \
         run-thirdparty run-worker migrate-up migrate-status migrate-down
 
@@ -21,6 +21,20 @@ test:
 
 test-race:
 	go test -race ./...
+
+test-coverage:
+	go test -coverprofile=coverage.out \
+		./internal/application/service/... \
+		./internal/application/domain/... \
+		./internal/application/repository/... \
+		./internal/account/service/... \
+		./internal/account/domain/... \
+		./internal/account/repository/... \
+		./internal/thirdparty/service/... \
+		./internal/thirdparty/domain/...
+
+coverage-html:
+	go tool cover -html=coverage.out
 
 build:
 	go build ./...

@@ -2,7 +2,7 @@
 
 A Go backend training project for a lightweight bank account onboarding workflow. The API design covers starting an application, accepting terms, submitting identity details, verifying identity, screening sanctions, reviewing applications, and checking progress.
 
-Current version: **0.10.0** — Third-party VerifyIdentity over gRPC/HTTP/2, structural validation, and an injected deterministic mock provider (PR 07). See [CHANGELOG](CHANGELOG) for release details.
+Current version: **0.10.1** — Application module refactor: focused use-case services, aggregate-root persistence, and service-owned transaction boundaries. See [CHANGELOG](CHANGELOG) for release details.
 
 The project uses Protocol Buffers and Connect RPC. StartApplication validates client request UUIDs, persists applications, and resolves retries durably using the unique request ID. AcceptTerms records acceptance and advances the application status atomically. SubmitIdentity validates customer identity, saves it, and advances status to `PENDING_WORKFLOW_START` in one transaction. Both operations use PostgreSQL row locks for concurrent requests and support durable replay. The application server manages its pgxpool lifecycle and loads local `.env` configuration. Remaining application RPCs are unimplemented. CI runs PostgreSQL integration tests against a disposable database using existing Goose migrations. Local PostgreSQL and Temporal Dev Server infrastructure is available through Docker Compose. PR 06 starts Temporal after identity persistence and conditionally records pending identity verification. The local worker runs a deterministic durable wait. Business activities, account operations, and human review remain deferred.
 
@@ -28,10 +28,10 @@ The project uses Protocol Buffers and Connect RPC. StartApplication validates cl
 |   |-- account/                  # Domain, handler, service, and repository placeholders
 |   |-- workflow/                 # Durable waiting workflow; business activities remain placeholders
 |   |-- application/
-|   |   |-- domain/                # Application model, statuses, and terms acceptance rules
-|   |   |-- handler/               # StartApplication, AcceptTerms, and SubmitIdentity handlers
-|   |   |-- repository/            # Shared persistence errors and PostgreSQL implementation
-|   |   |-- service/               # Application operations and consumer-owned dependency interfaces
+|   |   |-- domain/                # Application aggregate, identity, statuses, and domain rules
+|   |   |-- handler/               # One ConnectRPC Handler; methods/interfaces split by use case
+|   |   |-- repository/            # Aggregate ApplicationRepository and PostgreSQL transactor
+|   |   |-- service/               # Focused use-case services, narrow interfaces, and WithinTx
 |   |   `-- workflow/              # Main BE Temporal startup adapter; distinct from worker workflow code
 |   `-- thirdparty/
 |       |-- domain/                # Transport-independent identity and structural validation
@@ -51,6 +51,25 @@ The project uses Protocol Buffers and Connect RPC. StartApplication validates cl
 |-- CHANGELOG
 `-- VERSION
 ```
+
+## Application Module Organization
+
+StartApplicationService, AcceptTermsService, and SubmitIdentityService each own
+one use case and define only the repository methods they consume. One ConnectRPC
+Handler implements the application service; each implemented RPC and its narrow
+service interface live in a separate use-case file.
+
+ApplicationRepository persists the application aggregate, including its identity
+and terms records. SQL remains organized in application_repository.go,
+application_identity_repository.go, and application_terms_acceptance_repository.go.
+All methods share the existing PostgreSQL pool.
+
+AcceptTerms and SubmitIdentity coordinate domain decisions and writes through the
+database-independent `Transactor.WithinTx(ctx, fn)` interface. The PostgreSQL
+transactor binds one transaction to the callback context and manages begin,
+commit, and rollback. Application row locks remain held through transaction
+completion. Temporal startup occurs only after identity persistence commits;
+workflow startup reconciliation uses a separate transaction.
 
 ## API Endpoints
 
@@ -183,7 +202,7 @@ go test -v -count=1 ./internal/application/repository/postgres -run '^TestIntegr
 
 Alternatively, put `TEST_DATABASE_URL` in the repository root `.env`; PostgreSQL integration tests load it automatically from their package directory. Exported variables (including CI settings) take priority. Use only a disposable, already migrated test database. Tests create unique application IDs and clean up only their own rows; they do not create the database, apply migrations, or truncate tables.
 
-Integration coverage includes nullable completion/rejection fields and enum round-trips through both lookup methods, duplicate request IDs without overwriting existing data, and concurrent inserts for one request ID. ConnectRPC-to-PostgreSQL tests cover StartApplication creation/replay, AcceptTerms persistence/replay, and SubmitIdentity persistence/replay, optional email presence, conflicts, invalid states, concurrent identical/conflicting submissions, and error mappings. Domain tests cover terms decisions and identity validation, calendar boundaries, equality, and state transitions; concise service tests cover validation, delegation, and error propagation. Tests clean up identity and acceptance rows before their parent applications. PR 06 workflow startup is implemented; business activities remain deferred.
+Integration coverage includes nullable completion/rejection fields and enum round-trips through both lookup methods, duplicate request IDs without overwriting existing data, and concurrent inserts for one request ID. ConnectRPC-to-PostgreSQL tests cover StartApplication creation/replay, AcceptTerms persistence/replay, and SubmitIdentity persistence/replay, optional email presence, conflicts, invalid states, concurrent identical/conflicting submissions, and error mappings. Domain tests cover terms decisions and identity validation, calendar boundaries, equality, and state transitions; service tests cover validation, orchestration order, replay decisions, transaction failures, and workflow startup after successful commit. Transactor tests cover lifecycle errors, panic rollback, cancellation-safe cleanup, required transaction contexts, and concurrent context isolation. Integration tests verify that identity and terms inserts roll back when application status updates fail. Tests clean up identity and acceptance rows before their parent applications. PR 06 workflow startup is implemented; business activities remain deferred.
 
 ### Verify infrastructure
 
@@ -321,10 +340,23 @@ Shutdown removes the containers and network while preserving the `postgres_data`
 
 ## Development Tooling and Limitations
 
-The Makefile provides `proto`, `lint`, `fmt`, `vet`, `test`, `test-race`, `build`, and `ci` targets. With Make installed, `make run-app` and `make run-thirdparty` start the existing HTTP servers.
+The Makefile provides `proto`, `lint`, `fmt`, `vet`, `test`, `test-race`, `test-coverage`, `coverage-html`, `build`, and `ci` targets. With Make installed, `make run-app` and `make run-thirdparty` start the existing HTTP servers.
+
+Generate and view coverage for the package list configured in the Makefile:
+
+```sh
+make test-coverage
+make coverage-html
+```
+
+`coverage-html` reads the existing `coverage.out`; it does not regenerate it.
+Run `make test-coverage` again after source files are renamed or moved to avoid
+stale paths in the report. The coverage profile is gitignored. The configured
+package list excludes handlers and Temporal adapters/workflows, so this is not
+a whole-repository coverage report.
 
 All four commands have `main` functions and are buildable. Account has an empty entry point; Worker polls Temporal and registers the durable waiting workflow. Application implements StartApplication, AcceptTerms, and SubmitIdentity with PostgreSQL persistence; its remaining RPCs return Unimplemented. Third-party implements VerifyIdentity using an injected mock provider; ScreenSanctions returns Unimplemented. PR 06 workflow startup is implemented; business activities remain deferred.
 
-GitHub Actions checks protobuf lint and generation consistency, Go formatting, static analysis, migration-file validation, race-enabled tests, and builds on pull requests and pushes to `main`. Each verification job starts a PostgreSQL `postgres:17.12` service container with a disposable `onboarding_test` database and a readiness health check. CI sets `TEST_DATABASE_URL` with fixed test-only credentials and applies the existing migrations through Goose. It also starts a disposable `temporalio/temporal:1.10.1` development server, waits for its cluster health check, and sets `TEST_TEMPORAL_ADDRESS=localhost:7233` and `TEST_TEMPORAL_NAMESPACE=default`. A failed Temporal startup fails the job; container logs are printed and the container is removed during cleanup. CI runs `go test -race -count=1 -v ./...` so unit, PostgreSQL integration, and live Temporal integration tests run without cached results and appear in the logs. No local `.env`, Docker Compose stack, or worker is required by this job. The live Temporal test verifies that duplicate startup requests reuse the same running workflow and run ID. Pool unit tests cover invalid DSNs and credential redaction; Application tests cover domain validation, repository error classification, round-trips, duplicate request IDs, and concurrent inserts. Startup tests also cover Temporal options, deadline propagation, duplicate classification, safe retries, conditional status updates, and durable workflow waiting through the SDK test environment. Manual smoke checks remain available; local race verification is blocked by the installed C compiler lacking 64-bit support.
+GitHub Actions checks protobuf lint and generation consistency, Go formatting, static analysis, migration-file validation, race-enabled tests, and builds on pull requests and pushes to `main`. Each verification job starts a PostgreSQL `postgres:17.12` service container with a disposable `onboarding_test` database and a readiness health check. CI sets `TEST_DATABASE_URL` with fixed test-only credentials and applies the existing migrations through Goose. It also starts a disposable `temporalio/temporal:1.10.1` development server, waits for its cluster health check, and sets `TEST_TEMPORAL_ADDRESS=localhost:7233` and `TEST_TEMPORAL_NAMESPACE=default`. A failed Temporal startup fails the job; container logs are printed and the container is removed during cleanup. CI runs `go test -race -count=1 -v ./...` so unit, PostgreSQL integration, and live Temporal integration tests run without cached results and appear in the logs. No local `.env`, Docker Compose stack, or worker is required by this job. The live Temporal test verifies that duplicate startup requests reuse the same running workflow and run ID. Pool unit tests cover invalid DSNs and credential redaction; Application tests cover domain validation, repository error classification, round-trips, duplicate request IDs, and concurrent inserts. Startup tests also cover Temporal options, deadline propagation, duplicate classification, safe retries, conditional status updates. The placeholder durable-wait unit test has been removed; live Temporal startup integration coverage remains. Manual smoke checks remain available; local race verification is blocked by the installed C compiler lacking 64-bit support.
 
 [AGENTS.md](AGENTS.md) describes engineering and human review requirements and points to the design documents under `docs/AI/`.

@@ -21,20 +21,48 @@ func (f startupFunc) EnsureStarted(ctx context.Context, applicationID, workflowI
 }
 
 type startupRepository struct {
-	repositoryStub
 	app                                 domain.Application
 	submitErr, transitionErr, lookupErr error
 	persisted                           bool
+	inTransaction                       bool
+	transactionCalls                    int
 	transitions, lookups                int
 	beforeTransition                    func(*domain.Application)
 }
 
-func (r *startupRepository) SubmitIdentity(context.Context, domain.Identity) (domain.Application, error) {
-	if r.submitErr != nil {
-		return domain.Application{}, r.submitErr
+func (r *startupRepository) WithinTx(ctx context.Context, fn func(context.Context) error) error {
+	r.transactionCalls++
+	r.inTransaction = true
+	defer func() { r.inTransaction = false }()
+	if err := fn(ctx); err != nil {
+		return err
 	}
 	r.persisted = true
+	return nil
+}
+
+func (r *startupRepository) GetByIDForUpdate(context.Context, uuid.UUID) (domain.Application, error) {
+	if r.transactionCalls == 1 && r.submitErr != nil {
+		return domain.Application{}, r.submitErr
+	}
+	if r.transactionCalls > 1 && r.beforeTransition != nil {
+		r.beforeTransition(&r.app)
+	}
 	return r.app, nil
+}
+
+func (r *startupRepository) GetIdentity(context.Context, uuid.UUID) (*domain.Identity, error) {
+	i := serviceIdentity()
+	i.ApplicationID = r.app.ApplicationID
+	return i, nil
+}
+
+func (r *startupRepository) InsertIdentity(context.Context, domain.Identity) error {
+	panic("unexpected identity insert")
+}
+
+func (r *startupRepository) AdvanceAfterIdentity(context.Context, domain.Identity) (domain.Application, error) {
+	panic("unexpected identity transition")
 }
 
 func (r *startupRepository) GetByID(context.Context, uuid.UUID) (domain.Application, error) {
@@ -46,9 +74,6 @@ func (r *startupRepository) ResolveWorkflowStart(_ context.Context, id uuid.UUID
 	r.transitions++
 	if r.transitionErr != nil {
 		return domain.Application{}, r.transitionErr
-	}
-	if r.beforeTransition != nil {
-		r.beforeTransition(&r.app)
 	}
 	if r.app.ApplicationID != id {
 		panic("wrong application ID")
@@ -92,12 +117,12 @@ func TestWorkflowStartupOutcomes(t *testing.T) {
 			calls := 0
 			starter := startupFunc(func(_ context.Context, appID, workflowID string) (WorkflowStartOutcome, error) {
 				calls++
-				if !r.persisted || appID != r.app.ApplicationID.String() || workflowID != before.TemporalWorkflowID {
+				if !r.persisted || r.inTransaction || appID != r.app.ApplicationID.String() || workflowID != before.TemporalWorkflowID {
 					t.Fatal("startup must follow persistence and use stored IDs")
 				}
 				return tc.outcome, tc.cause
 			})
-			got, err := New(r, starter).SubmitIdentity(context.Background(), r.app.ApplicationID.String(), serviceIdentity())
+			got, err := NewSubmitIdentityService(r, r, starter).SubmitIdentity(context.Background(), r.app.ApplicationID.String(), serviceIdentity())
 			if !errors.Is(err, tc.wantErr) || calls != 1 || r.transitions != tc.writes || r.app.Status != tc.wantStatus {
 				t.Fatalf("error=%v calls=%d transitions=%d status=%s", err, calls, r.transitions, r.app.Status)
 			}
@@ -118,7 +143,7 @@ func TestWorkflowStartupPersistenceFailure(t *testing.T) {
 		t.Fatal("startup before successful persistence")
 		return 0, nil
 	})
-	_, err := New(r, starter).SubmitIdentity(context.Background(), r.app.ApplicationID.String(), serviceIdentity())
+	_, err := NewSubmitIdentityService(r, r, starter).SubmitIdentity(context.Background(), r.app.ApplicationID.String(), serviceIdentity())
 	if !errors.Is(err, repository.ErrDatabase) || r.transitions != 0 {
 		t.Fatalf("unexpected result: %v", err)
 	}
@@ -134,7 +159,7 @@ func TestWorkflowStartupReplaySkipsTemporal(t *testing.T) {
 				t.Fatal("progressed replay started Temporal")
 				return 0, nil
 			})
-			got, err := New(r, starter).SubmitIdentity(context.Background(), r.app.ApplicationID.String(), serviceIdentity())
+			got, err := NewSubmitIdentityService(r, r, starter).SubmitIdentity(context.Background(), r.app.ApplicationID.String(), serviceIdentity())
 			if err != nil || !reflect.DeepEqual(got, before) || r.transitions != 0 {
 				t.Fatalf("replay changed application: %+v %v", got, err)
 			}
@@ -161,7 +186,7 @@ func TestWorkflowStartupRetryAfterUncertainOrDatabaseFailure(t *testing.T) {
 			if databaseFailure {
 				r.transitionErr = repository.ErrDatabase
 			}
-			s := New(r, starter)
+			s := NewSubmitIdentityService(r, r, starter)
 			_, err := s.SubmitIdentity(context.Background(), r.app.ApplicationID.String(), serviceIdentity())
 			if err == nil || calls != 1 || !r.persisted || r.app.Status != domain.ApplicationStatusPendingWorkflowStart {
 				t.Fatal("first failure must retain identity and pending status without retrying")
@@ -180,7 +205,7 @@ func TestWorkflowStartupConcurrentProgressWins(t *testing.T) {
 		r := startupFixture()
 		r.beforeTransition = func(app *domain.Application) { app.Status = domain.ApplicationStatusCompleted }
 		starter := startupFunc(func(context.Context, string, string) (WorkflowStartOutcome, error) { return outcome, nil })
-		got, err := New(r, starter).SubmitIdentity(context.Background(), r.app.ApplicationID.String(), serviceIdentity())
+		got, err := NewSubmitIdentityService(r, r, starter).SubmitIdentity(context.Background(), r.app.ApplicationID.String(), serviceIdentity())
 		if err != nil || got.Status != domain.ApplicationStatusCompleted {
 			t.Fatalf("concurrent progress overwritten: %+v %v", got, err)
 		}
@@ -195,7 +220,7 @@ func TestWorkflowStartupCompletedReconcilesPersistedState(t *testing.T) {
 				r.app.Status = status // another writer progresses after the identity transaction
 				return WorkflowStartCompleted, nil
 			})
-			got, err := New(r, starter).SubmitIdentity(context.Background(), r.app.ApplicationID.String(), serviceIdentity())
+			got, err := NewSubmitIdentityService(r, r, starter).SubmitIdentity(context.Background(), r.app.ApplicationID.String(), serviceIdentity())
 			if r.lookups != 1 || r.transitions != 0 {
 				t.Fatal("completed execution must reconcile with a fresh read and no writes")
 			}
@@ -218,7 +243,7 @@ func TestWorkflowStartupRejectsInconsistentStoredID(t *testing.T) {
 			t.Fatal("inconsistent persisted workflow ID reached Temporal")
 			return 0, nil
 		})
-		_, err := New(r, starter).SubmitIdentity(context.Background(), r.app.ApplicationID.String(), serviceIdentity())
+		_, err := NewSubmitIdentityService(r, r, starter).SubmitIdentity(context.Background(), r.app.ApplicationID.String(), serviceIdentity())
 		if !errors.Is(err, ErrWorkflowStateInconsistent) || r.transitions != 0 {
 			t.Fatalf("stored workflow ID was silently replaced: %v", err)
 		}
@@ -231,7 +256,7 @@ func TestWorkflowStartupReconciliationReadFailure(t *testing.T) {
 	starter := startupFunc(func(context.Context, string, string) (WorkflowStartOutcome, error) {
 		return WorkflowStartCompleted, nil
 	})
-	_, err := New(r, starter).SubmitIdentity(context.Background(), r.app.ApplicationID.String(), serviceIdentity())
+	_, err := NewSubmitIdentityService(r, r, starter).SubmitIdentity(context.Background(), r.app.ApplicationID.String(), serviceIdentity())
 	if !errors.Is(err, repository.ErrDatabase) || r.lookups != 1 || r.transitions != 0 || r.app.Status != domain.ApplicationStatusPendingWorkflowStart {
 		t.Fatalf("failed reconciliation must leave application pending: %v", err)
 	}

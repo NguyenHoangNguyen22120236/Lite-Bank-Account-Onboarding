@@ -34,8 +34,10 @@ func (acceptedWorkflowStarter) EnsureStarted(context.Context, string, string) (s
 	return service.WorkflowStartEstablished, nil
 }
 
-func submitIdentityRPC(ctx context.Context, db DB, id string, identity *onboardingv1.IdentityInfo) *httptest.ResponseRecorder {
-	_, rpc := onboardingv1connect.NewApplicationServiceHandler(handler.New(service.New(New(db), acceptedWorkflowStarter{})))
+func submitIdentityRPC(ctx context.Context, db integrationDB, id string, identity *onboardingv1.IdentityInfo) *httptest.ResponseRecorder {
+	r := NewApplicationRepository(db)
+	_, rpc := onboardingv1connect.NewApplicationServiceHandler(handler.New(
+		service.NewStartApplicationService(r), service.NewAcceptTermsService(NewTransactor(db), r), service.NewSubmitIdentityService(NewTransactor(db), r, acceptedWorkflowStarter{})))
 	body, err := protojson.Marshal(&onboardingv1.SubmitIdentityRequest{ApplicationId: id, Identity: identity})
 	if err != nil {
 		panic(err)
@@ -148,7 +150,7 @@ func TestIntegrationSubmitIdentityPersistenceAndReplay(t *testing.T) {
 				t.Fatal("identity fields, optional email, or timestamp incorrect")
 			}
 			app.Status = domain.ApplicationStatusPendingIdentityVerification
-			got, err := New(pool).GetByID(ctx, app.ApplicationID)
+			got, err := NewApplicationRepository(pool).GetByID(ctx, app.ApplicationID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -161,7 +163,7 @@ func TestIntegrationSubmitIdentityPersistenceAndReplay(t *testing.T) {
 			if !reflect.DeepEqual(readIdentity(t, ctx, pool, app.ApplicationID), stored) {
 				t.Fatal("replay modified identity")
 			}
-			got, err = New(pool).GetByID(ctx, app.ApplicationID)
+			got, err = NewApplicationRepository(pool).GetByID(ctx, app.ApplicationID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -180,7 +182,7 @@ func TestIntegrationSubmitIdentityPersistenceAndReplay(t *testing.T) {
 			if !reflect.DeepEqual(readIdentity(t, ctx, pool, app.ApplicationID), stored) {
 				t.Fatal("progressed replay modified identity")
 			}
-			got, err = New(pool).GetByID(ctx, app.ApplicationID)
+			got, err = NewApplicationRepository(pool).GetByID(ctx, app.ApplicationID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -228,7 +230,7 @@ func TestIntegrationSubmitIdentityConflictsAndStates(t *testing.T) {
 				input.IdNumber = "bad"
 			}
 			assertIdentityRPC(t, submitIdentityRPC(ctx, pool, app.ApplicationID.String(), input), app.ApplicationID, "", tc.code)
-			got, err := New(pool).GetByID(ctx, app.ApplicationID)
+			got, err := NewApplicationRepository(pool).GetByID(ctx, app.ApplicationID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -291,7 +293,7 @@ func TestIntegrationSubmitIdentityConcurrent(t *testing.T) {
 				t.Fatal("winning identity not preserved")
 			}
 			app.Status = domain.ApplicationStatusPendingIdentityVerification
-			got, err := New(pool).GetByID(ctx, app.ApplicationID)
+			got, err := NewApplicationRepository(pool).GetByID(ctx, app.ApplicationID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -325,7 +327,7 @@ func TestIntegrationSubmitIdentityDatabaseErrors(t *testing.T) {
 		cancel()
 		assertIdentityRPC(t, submitIdentityRPC(requestCtx, pool, app.ApplicationID.String(), identityPayload()), app.ApplicationID, "", code)
 	}
-	got, err := New(pool).GetByID(ctx, app.ApplicationID)
+	got, err := NewApplicationRepository(pool).GetByID(ctx, app.ApplicationID)
 	if err != nil {
 		t.Fatal(err)
 	}

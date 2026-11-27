@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -15,7 +16,14 @@ import (
 )
 
 // This stub returns errors only; successful scanning is tested against PostgreSQL.
+type integrationDB interface {
+	ApplicationDB
+	TransactorDB
+}
+
 type failingDB struct{ err error }
+
+func (db failingDB) Query(context.Context, string, ...any) (pgx.Rows, error) { return nil, db.err }
 
 func (db failingDB) Begin(context.Context) (pgx.Tx, error) {
 	return nil, db.err
@@ -49,7 +57,7 @@ func TestCreateErrorClassification(t *testing.T) {
 		{"deadline", context.DeadlineExceeded, context.DeadlineExceeded},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := New(failingDB{tc.cause}).Create(context.Background(), fixture())
+			err := NewApplicationRepository(failingDB{tc.cause}).Create(context.Background(), fixture())
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("got %v, want %v", err, tc.want)
 			}
@@ -73,10 +81,18 @@ func TestLookupErrorClassification(t *testing.T) {
 		{"scan_failure", errors.New("scan failed"), repository.ErrDatabase},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := New(failingDB{tc.cause}).GetByID(context.Background(), uuid.New())
+			got, err := NewApplicationRepository(failingDB{tc.cause}).GetByID(context.Background(), uuid.New())
 			if !errors.Is(err, tc.want) || got != (domain.Application{}) {
 				t.Fatalf("expected zero application and %v, got %+v, %v", tc.want, got, err)
 			}
 		})
+	}
+}
+
+func TestWorkflowStartupTransitionDatabaseFailure(t *testing.T) {
+	app := fixture()
+	_, err := resolveWorkflowStartForTest(context.Background(), failingDB{err: errors.New("synthetic driver failure")}, NewApplicationRepository(failingDB{err: errors.New("synthetic driver failure")}), app.ApplicationID, domain.ApplicationStatusPendingIdentityVerification, time.Now().UTC())
+	if !errors.Is(err, repository.ErrDatabase) {
+		t.Fatalf("database error classification lost: %v", err)
 	}
 }

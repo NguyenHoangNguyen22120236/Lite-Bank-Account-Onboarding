@@ -30,6 +30,7 @@ func New(c Client, taskQueue string) *Starter { return &Starter{client: c, taskQ
 func (s *Starter) EnsureStarted(ctx context.Context, applicationID, workflowID string) (service.WorkflowStartOutcome, error) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
+	// ExecuteWorkflow checks whether workflow START fails or sucessful
 	_, err := s.client.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
 		ID: workflowID, TaskQueue: s.taskQueue,
 		WorkflowIDReusePolicy:                    enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE,
@@ -46,6 +47,7 @@ func (s *Starter) EnsureStarted(ctx context.Context, applicationID, workflowID s
 	if duplicate.RunId == "" {
 		return 0, service.ErrWorkflowUnavailable
 	}
+	// DescribeWorkflow checks whether workflow EXECUTION fails or sucessful
 	response, err := s.client.DescribeWorkflow(ctx, workflowID, duplicate.RunId)
 	if err != nil {
 		return 0, startupError(ctx, err)

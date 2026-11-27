@@ -23,7 +23,9 @@ import (
 
 // Each call constructs fresh layers; no HTTP listener or process-local replay cache.
 func acceptTermsRPC(ctx context.Context, pool *pgxpool.Pool, id, term string) *httptest.ResponseRecorder {
-	_, rpc := onboardingv1connect.NewApplicationServiceHandler(handler.New(service.New(New(pool), nil)))
+	r := NewApplicationRepository(pool)
+	_, rpc := onboardingv1connect.NewApplicationServiceHandler(handler.New(
+		service.NewStartApplicationService(r), service.NewAcceptTermsService(NewTransactor(pool), r), service.NewSubmitIdentityService(NewTransactor(pool), r, nil)))
 	body, err := protojson.Marshal(&onboardingv1.AcceptTermsRequest{ApplicationId: id, TermId: term})
 	if err != nil {
 		panic(err)
@@ -75,7 +77,7 @@ func termsFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, status 
 			t.Error("could not clean up test terms (details omitted)")
 		}
 	})
-	if err := New(pool).Create(ctx, app); err != nil {
+	if err := NewApplicationRepository(pool).Create(ctx, app); err != nil {
 		t.Fatal(err)
 	}
 	return app
@@ -122,7 +124,7 @@ func TestIntegrationAcceptTermsAndReplay(t *testing.T) {
 		t.Fatalf("unexpected acceptance: %+v", a)
 	}
 	app.Status, app.UpdatedAt = domain.ApplicationStatusPendingIdentitySubmission, a.at
-	stored, err := New(pool).GetByID(ctx, app.ApplicationID)
+	stored, err := NewApplicationRepository(pool).GetByID(ctx, app.ApplicationID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +135,7 @@ func TestIntegrationAcceptTermsAndReplay(t *testing.T) {
 		}
 		app.Status = status
 		assertTermsRPC(t, acceptTermsRPC(ctx, pool, app.ApplicationID.String(), " V1 "), http.StatusOK, "")
-		stored, err = New(pool).GetByID(ctx, app.ApplicationID)
+		stored, err = NewApplicationRepository(pool).GetByID(ctx, app.ApplicationID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -166,7 +168,7 @@ func TestIntegrationAcceptTermsErrors(t *testing.T) {
 			}
 			original := readTerms(t, ctx, pool, app.ApplicationID)
 			assertTermsRPC(t, acceptTermsRPC(ctx, pool, app.ApplicationID.String(), tc.term), tc.httpStatus, tc.code)
-			stored, err := New(pool).GetByID(ctx, app.ApplicationID)
+			stored, err := NewApplicationRepository(pool).GetByID(ctx, app.ApplicationID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -231,7 +233,7 @@ func TestIntegrationAcceptTermsConcurrent(t *testing.T) {
 				t.Fatal("concurrent requests did not preserve one winning acceptance")
 			}
 			app.Status, app.UpdatedAt = domain.ApplicationStatusPendingIdentitySubmission, accepted[0].at
-			stored, err := New(pool).GetByID(ctx, app.ApplicationID)
+			stored, err := NewApplicationRepository(pool).GetByID(ctx, app.ApplicationID)
 			if err != nil {
 				t.Fatal(err)
 			}
