@@ -16,6 +16,8 @@ import (
 	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/thirdparty/handler"
 	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/thirdparty/mock"
 	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/thirdparty/service"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type verifierFunc func(context.Context, domain.Identity) (bool, error)
@@ -53,9 +55,8 @@ func TestVerifyIdentityAPI(t *testing.T) {
 			path, rpc := onboardingv1connect.NewThirdPartyServiceHandler(handler.New(service.New(provider)))
 			mux.Handle(path, rpc)
 			server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.ProtoMajor != 2 || !strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
-					t.Error("expected gRPC over HTTP/2")
-				}
+				assert.Equal(t, 2, r.ProtoMajor)
+				assert.True(t, strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc"))
 				mux.ServeHTTP(w, r)
 			}))
 			server.Config.Protocols = new(http.Protocols)
@@ -70,24 +71,19 @@ func TestVerifyIdentityAPI(t *testing.T) {
 			input := &onboardingv1.IdentityInfo{IdNumber: tt.id, FullName: "Mock Citizen", DateOfBirth: "1990-01-01", IdExpiryDate: "2040-01-01", PhoneNumber: "0900000000"}
 			response, err := client.VerifyIdentity(context.Background(), connect.NewRequest(&onboardingv1.VerifyIdentityRequest{Identity: input}))
 			if tt.code == 0 {
-				if err != nil || response == nil || response.Msg.Verified != tt.verified {
-					t.Fatalf("response=%v, error=%v", response, err)
-				}
+				require.NoError(t, err)
+				require.NotNil(t, response)
+				require.Equal(t, tt.verified, response.Msg.Verified)
 			} else {
-				if response != nil || connect.CodeOf(err) != tt.code {
-					t.Fatalf("response=%v, error=%v; want %v", response, err, tt.code)
-				}
+				require.Nil(t, response)
+				require.Equal(t, tt.code, connect.CodeOf(err))
 				for _, secret := range []string{"private", "000000000001", "Mock Citizen"} {
-					if strings.Contains(err.Error(), secret) {
-						t.Fatalf("error exposes %q: %v", secret, err)
-					}
+					require.NotContains(t, err.Error(), secret)
 				}
 			}
 			if tt.name == "verified" {
 				_, err := client.ScreenSanctions(context.Background(), connect.NewRequest(&onboardingv1.ScreenSanctionsRequest{Identity: input}))
-				if connect.CodeOf(err) != connect.CodeUnimplemented {
-					t.Fatalf("ScreenSanctions error=%v", err)
-				}
+				require.Equal(t, connect.CodeUnimplemented, connect.CodeOf(err))
 			}
 		})
 	}

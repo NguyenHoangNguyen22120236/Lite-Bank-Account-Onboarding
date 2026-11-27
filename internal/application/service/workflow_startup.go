@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/application/domain"
@@ -14,13 +13,6 @@ const (
 	WorkflowStartEstablished WorkflowStartOutcome = iota + 1
 	WorkflowStartCompleted
 	WorkflowStartClosedUnsuccessfully
-)
-
-var (
-	ErrWorkflowClosed            = errors.New("workflow ended unsuccessfully; operational recovery required")
-	ErrWorkflowStateInconsistent = errors.New("workflow and application state are inconsistent")
-	ErrWorkflowUnavailable       = errors.New("workflow startup unavailable; retry the same submission")
-	ErrWorkflowStartup           = errors.New("could not establish workflow startup")
 )
 
 // WorkflowStarter hides Temporal transport details from application operations.

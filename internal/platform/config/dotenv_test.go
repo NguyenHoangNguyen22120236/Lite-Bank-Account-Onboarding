@@ -3,8 +3,9 @@ package config
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoadDotEnv(t *testing.T) {
@@ -22,41 +23,26 @@ func TestLoadDotEnv(t *testing.T) {
 			// Restore any original value while ensuring the load case starts unset.
 			t.Setenv(key, "from_environment")
 			if !tc.existing {
-				if err := os.Unsetenv(key); err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, os.Unsetenv(key))
 			}
 			path := filepath.Join(t.TempDir(), ".env")
-			if err := os.WriteFile(path, []byte(tc.contents), 0600); err != nil {
-				t.Fatal(err)
-			}
-			if err := LoadDotEnv(path); err != nil {
-				t.Fatal(err)
-			}
-			if got := os.Getenv(key); got != tc.want {
-				t.Fatalf("got %q, want %q", got, tc.want)
-			}
+			require.NoError(t, os.WriteFile(path, []byte(tc.contents), 0600))
+			require.NoError(t, LoadDotEnv(path))
+			require.Equal(t, tc.want, os.Getenv(key))
 		})
 	}
 }
 
 func TestLoadDotEnvMissingFile(t *testing.T) {
-	if err := LoadDotEnv(filepath.Join(t.TempDir(), "missing.env")); err != nil {
-		t.Fatalf("missing optional file must be allowed: %v", err)
-	}
+	require.NoError(t, LoadDotEnv(filepath.Join(t.TempDir(), "missing.env")))
 }
 
 func TestLoadDotEnvMalformedFile(t *testing.T) {
 	const sensitive = "synthetic-private-value"
 	path := filepath.Join(t.TempDir(), ".env")
-	if err := os.WriteFile(path, []byte("LITE_BANK_DOTENV_TEST_VALUE=\""+sensitive+"\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(path, []byte("LITE_BANK_DOTENV_TEST_VALUE=\""+sensitive+"\n"), 0600))
 	err := LoadDotEnv(path)
-	if err == nil {
-		t.Fatal("malformed file must return an error")
-	}
-	if strings.Contains(err.Error(), sensitive) || strings.Contains(err.Error(), path) {
-		t.Fatal("error exposes configuration contents or file path")
-	}
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), sensitive)
+	require.NotContains(t, err.Error(), path)
 }

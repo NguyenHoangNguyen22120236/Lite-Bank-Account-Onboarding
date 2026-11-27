@@ -1,6 +1,6 @@
 
 .PHONY: proto lint fmt vet test test-race test-coverage coverage-html build \
-        ci up down logs run-app run-account \
+        ci up down logs run-app run-account mocks \
         run-thirdparty run-worker migrate-up migrate-status migrate-down
 
 proto:
@@ -35,6 +35,9 @@ test-coverage:
 
 coverage-html:
 	go tool cover -html=coverage.out
+
+mocks:
+	mockery --config .mockery.yml
 
 build:
 	go build ./...

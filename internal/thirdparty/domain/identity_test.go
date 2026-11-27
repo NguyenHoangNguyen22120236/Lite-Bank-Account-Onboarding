@@ -1,11 +1,11 @@
 package domain_test
 
 import (
-	"errors"
 	"strings"
 	"testing"
 
 	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/thirdparty/domain"
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidateIdentityStructure(t *testing.T) {
@@ -38,15 +38,12 @@ func TestValidateIdentityStructure(t *testing.T) {
 			i := domain.Identity{IDNumber: "000000000001", FullName: "Mock Citizen", DateOfBirth: "1990-01-01", IDExpiryDate: "2040-01-01", PhoneNumber: "0900000000"}
 			tt.change(&i)
 			err := domain.ValidateIdentityStructure(&i)
-			if tt.valid && err != nil {
-				t.Fatalf("valid input: %v", err)
-			}
-			if !tt.valid && !errors.Is(err, domain.ErrInvalidIdentity) {
-				t.Fatalf("error = %v, want invalid identity", err)
+			if tt.valid {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, domain.ErrInvalidIdentity)
 			}
 		})
 	}
-	if err := domain.ValidateIdentityStructure(nil); !errors.Is(err, domain.ErrInvalidIdentity) {
-		t.Fatalf("missing identity error = %v", err)
-	}
+	require.ErrorIs(t, domain.ValidateIdentityStructure(nil), domain.ErrInvalidIdentity)
 }

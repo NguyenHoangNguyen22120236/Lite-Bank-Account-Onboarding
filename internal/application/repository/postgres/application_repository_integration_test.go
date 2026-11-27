@@ -4,7 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"sync"
+	"testing"
+	"time"
+
 	onboardingv1 "github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/gen/onboarding/v1"
 	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/gen/onboarding/v1/onboardingv1connect"
 	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/application/domain"
@@ -15,24 +21,17 @@ import (
 	platformpostgres "github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/platform/postgres"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
-	"net/http"
-	"net/http/httptest"
-	"os"
-	"reflect"
-	"sync"
-	"testing"
-	"time"
 )
 
 // Set TEST_DATABASE_URL only for a disposable, already migrated database.
 // Tests optionally load the root .env; they do not run migrations or truncate tables.
 func integrationPool(t *testing.T) (*pgxpool.Pool, context.Context) {
 	t.Helper()
-	if err := config.LoadDotEnv("../../../../.env"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, config.LoadDotEnv("../../../../.env"))
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
 		t.Skip("TEST_DATABASE_URL is not set")
@@ -40,9 +39,7 @@ func integrationPool(t *testing.T) (*pgxpool.Pool, context.Context) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	t.Cleanup(cancel)
 	pool, err := platformpostgres.Open(ctx, dsn)
-	if err != nil {
-		t.Fatal("cannot open integration database (connection details omitted)")
-	}
+	require.True(t, err == nil, "cannot open integration database (connection details omitted)")
 	t.Cleanup(pool.Close)
 	return pool, ctx
 }
@@ -52,9 +49,8 @@ func cleanupApplication(t *testing.T, pool *pgxpool.Pool, id uuid.UUID) {
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if _, err := pool.Exec(ctx, "DELETE FROM applications WHERE application_id = $1", id); err != nil {
-			t.Error("could not clean up test application (details omitted)")
-		}
+		_, cleanupErr := pool.Exec(ctx, "DELETE FROM applications WHERE application_id = $1", id)
+		assert.True(t, cleanupErr == nil, "could not clean up test application (details omitted)")
 	})
 }
 
@@ -83,9 +79,7 @@ func assertApplication(t *testing.T, got, want domain.Application) {
 		completed := want.CompletedAt.UTC().Truncate(time.Microsecond)
 		want.CompletedAt = &completed
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("application mismatch: got %+v, want %+v", got, want)
-	}
+	require.Equal(t, want, got)
 }
 
 func TestIntegrationRoundTrip(t *testing.T) {
@@ -113,18 +107,12 @@ func TestIntegrationRoundTrip(t *testing.T) {
 				app.RejectedAtStep = &step
 			}
 			cleanupApplication(t, pool, app.ApplicationID)
-			if err := r.Create(ctx, app); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, r.Create(ctx, app))
 			got, err := r.GetByID(ctx, app.ApplicationID)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			assertApplication(t, got, app)
 			got, err = r.GetByRequestID(ctx, app.RequestID)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			assertApplication(t, got, app)
 		})
 	}
@@ -139,19 +127,14 @@ func TestIntegrationDuplicateRequestID(t *testing.T) {
 	cleanupApplication(t, pool, original.ApplicationID)
 	cleanupApplication(t, pool, candidate.ApplicationID)
 
-	if err := r.Create(ctx, original); err != nil {
-		t.Fatal(err)
-	}
-	if err := r.Create(ctx, candidate); !errors.Is(err, repository.ErrDuplicateRequestID) {
-		t.Fatalf("expected duplicate request error, got %v", err)
-	}
+	require.NoError(t, r.Create(ctx, original))
+	require.ErrorIs(t, r.Create(ctx, candidate), repository.ErrDuplicateRequestID)
 	got, err := r.GetByRequestID(ctx, original.RequestID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertApplication(t, got, original)
-	if _, err := r.GetByID(ctx, candidate.ApplicationID); !errors.Is(err, repository.ErrNotFound) {
-		t.Fatalf("duplicate candidate must not be stored, got %v", err)
+	{
+		_, err := r.GetByID(ctx, candidate.ApplicationID)
+		require.ErrorIs(t, err, repository.ErrNotFound)
 	}
 }
 
@@ -184,24 +167,16 @@ func TestIntegrationConcurrentDuplicateRequests(t *testing.T) {
 		if err == nil {
 			winner = i
 			successes++
-		} else if !errors.Is(err, repository.ErrDuplicateRequestID) {
-			t.Fatalf("insert %d: %v", i, err)
+		} else {
+			require.ErrorIs(t, err, repository.ErrDuplicateRequestID, "insert %d", i)
 		}
 	}
-	if successes != 1 {
-		t.Fatalf("got %d successful inserts, want one", successes)
-	}
+	require.Equal(t, 1, successes)
 	var rows int
-	if err := pool.QueryRow(ctx, "SELECT count(*) FROM applications WHERE request_id = $1", requestID).Scan(&rows); err != nil {
-		t.Fatal("count query failed (details omitted)")
-	}
-	if rows != 1 {
-		t.Fatalf("got %d rows, want one", rows)
-	}
+	require.True(t, pool.QueryRow(ctx, "SELECT count(*) FROM applications WHERE request_id = $1", requestID).Scan(&rows) == nil, "count query failed (details omitted)")
+	require.Equal(t, 1, rows)
 	got, err := r.GetByRequestID(ctx, requestID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertApplication(t, got, apps[winner])
 }
 
@@ -215,9 +190,7 @@ func TestIntegrationStartApplication(t *testing.T) {
 		_, rpc := onboardingv1connect.NewApplicationServiceHandler(handler.New(
 			service.NewStartApplicationService(r), service.NewAcceptTermsService(NewTransactor(pool), r), service.NewSubmitIdentityService(NewTransactor(pool), r, nil)))
 		body, err := protojson.Marshal(&onboardingv1.StartApplicationRequest{RequestId: input})
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		req := httptest.NewRequest(http.MethodPost, onboardingv1connect.ApplicationServiceStartApplicationProcedure, bytes.NewReader(body)).WithContext(ctx)
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Connect-Protocol-Version", "1")
@@ -227,69 +200,49 @@ func TestIntegrationStartApplication(t *testing.T) {
 	}
 	decode := func(response *httptest.ResponseRecorder) *onboardingv1.StartApplicationResponse {
 		t.Helper()
-		if response.Code != http.StatusOK {
-			t.Fatalf("expected success, got HTTP %d", response.Code)
-		}
+		require.Equal(t, http.StatusOK, response.Code)
 		result := new(onboardingv1.StartApplicationResponse)
-		if err := protojson.Unmarshal(response.Body.Bytes(), result); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, protojson.Unmarshal(response.Body.Bytes(), result))
 		return result
 	}
 	before := time.Now().UTC().Truncate(time.Microsecond)
 	first := decode(call(requestID.String()))
 	after := time.Now().UTC()
 	id, err := uuid.Parse(first.ApplicationId)
-	if err != nil || id == uuid.Nil || first.Status != onboardingv1.ApplicationStatus_APPLICATION_STATUS_PENDING_TERMS_ACCEPTANCE {
-		t.Fatalf("unexpected response: %v", first)
-	}
+	require.NoError(t, err)
+	require.NotEqual(t, uuid.Nil, id)
+	require.Equal(t, onboardingv1.ApplicationStatus_APPLICATION_STATUS_PENDING_TERMS_ACCEPTANCE, first.Status)
 	cleanupApplication(t, pool, id)
 	stored, err := r.GetByRequestID(ctx, requestID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stored.ApplicationID != id || stored.RequestID != requestID ||
-		stored.Status != domain.ApplicationStatusPendingTermsAcceptance || stored.TemporalWorkflowID != id.String() ||
-		stored.CreatedAt.Before(before) || stored.CreatedAt.After(after) || !stored.CreatedAt.Equal(stored.UpdatedAt) ||
-		stored.CompletedAt != nil || stored.RejectedAtStep != nil {
-		t.Fatalf("unexpected persisted application: %+v", stored)
-	}
+	require.NoError(t, err)
+	require.Equal(t, id, stored.ApplicationID)
+	require.Equal(t, requestID, stored.RequestID)
+	require.Equal(t, domain.ApplicationStatusPendingTermsAcceptance, stored.Status)
+	require.Equal(t, id.String(), stored.TemporalWorkflowID)
+	require.False(t, stored.CreatedAt.Before(before))
+	require.False(t, stored.CreatedAt.After(after))
+	require.True(t, stored.CreatedAt.Equal(stored.UpdatedAt))
+	require.Nil(t, stored.CompletedAt)
+	require.Nil(t, stored.RejectedAtStep)
 	replay := decode(call(requestID.String()))
-	if !proto.Equal(first, replay) {
-		t.Fatalf("replay changed response: %v versus %v", first, replay)
-	}
+	require.True(t, proto.Equal(first, replay))
 	again, err := r.GetByRequestID(ctx, requestID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertApplication(t, again, stored)
 	var rows int
-	if err := pool.QueryRow(ctx, "SELECT count(*) FROM applications WHERE request_id = $1", requestID).Scan(&rows); err != nil {
-		t.Fatal("count query failed (details omitted)")
-	}
-	if rows != 1 {
-		t.Fatalf("expected one row for the request ID, got %d", rows)
-	}
+	require.True(t, pool.QueryRow(ctx, "SELECT count(*) FROM applications WHERE request_id = $1", requestID).Scan(&rows) == nil, "count query failed (details omitted)")
+	require.Equal(t, 1, rows)
 	var beforeInvalid int
-	if err := pool.QueryRow(ctx, "SELECT count(*) FROM applications").Scan(&beforeInvalid); err != nil {
-		t.Fatal("count query failed (details omitted)")
-	}
+	require.True(t, pool.QueryRow(ctx, "SELECT count(*) FROM applications").Scan(&beforeInvalid) == nil, "count query failed (details omitted)")
 	invalid := call("invalid-request-id")
 	var failure struct {
 		Code string `json:"code"`
 	}
-	if err := json.Unmarshal(invalid.Body.Bytes(), &failure); err != nil {
-		t.Fatal(err)
-	}
-	if invalid.Code != http.StatusBadRequest || failure.Code != "invalid_argument" {
-		t.Fatalf("invalid request: HTTP %d, code %q", invalid.Code, failure.Code)
-	}
-	if err := pool.QueryRow(ctx, "SELECT count(*) FROM applications").Scan(&rows); err != nil {
-		t.Fatal("count query failed (details omitted)")
-	}
-	if rows != beforeInvalid {
-		t.Fatal("invalid input changed the number of persisted rows")
-	}
+	require.NoError(t, json.Unmarshal(invalid.Body.Bytes(), &failure))
+	require.Equal(t, http.StatusBadRequest, invalid.Code)
+	require.Equal(t, "invalid_argument", failure.Code)
+	require.True(t, pool.QueryRow(ctx, "SELECT count(*) FROM applications").Scan(&rows) == nil, "count query failed (details omitted)")
+	require.Equal(t, beforeInvalid, rows, "invalid input changed the number of persisted rows")
 }
 
 func TestIntegrationWorkflowStartupConditionalTransition(t *testing.T) {
@@ -299,22 +252,16 @@ func TestIntegrationWorkflowStartupConditionalTransition(t *testing.T) {
 		t.Run(string(target), func(t *testing.T) {
 			app := fixture()
 			app.Status = domain.ApplicationStatusPendingWorkflowStart
-			if err := r.Create(ctx, app); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, r.Create(ctx, app))
 			cleanupApplication(t, pool, app.ApplicationID)
 			now := app.UpdatedAt.Add(time.Hour)
 			got, err := resolveWorkflowStartForTest(ctx, pool, r, app.ApplicationID, target, now)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			want := app
 			want.Status, want.UpdatedAt = target, now
 			assertApplication(t, got, want)
 			stored, err := r.GetByID(ctx, app.ApplicationID)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			assertApplication(t, stored, want)
 		})
 	}
@@ -340,20 +287,14 @@ func TestIntegrationWorkflowStartupPreservesProgressedStatus(t *testing.T) {
 				completed := app.UpdatedAt
 				app.CompletedAt = &completed
 			}
-			if err := r.Create(ctx, app); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, r.Create(ctx, app))
 			cleanupApplication(t, pool, app.ApplicationID)
 			// One representative target is enough to check the pending-start guard.
 			got, err := resolveWorkflowStartForTest(ctx, pool, r, app.ApplicationID, domain.ApplicationStatusPendingIdentityVerification, app.UpdatedAt.Add(time.Hour))
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			assertApplication(t, got, app)
 			stored, err := r.GetByID(ctx, app.ApplicationID)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			assertApplication(t, stored, app)
 		})
 	}
@@ -364,9 +305,7 @@ func TestIntegrationWorkflowStartupConcurrentOutcomes(t *testing.T) {
 	r := NewApplicationRepository(pool)
 	app := fixture()
 	app.Status = domain.ApplicationStatusPendingWorkflowStart
-	if err := r.Create(ctx, app); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, r.Create(ctx, app))
 	cleanupApplication(t, pool, app.ApplicationID)
 	type result struct {
 		app domain.Application
@@ -388,16 +327,10 @@ func TestIntegrationWorkflowStartupConcurrentOutcomes(t *testing.T) {
 	wg.Wait()
 	close(results)
 	stored, err := r.GetByID(ctx, app.ApplicationID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stored.Status != domain.ApplicationStatusPendingIdentityVerification && stored.Status != domain.ApplicationStatusFailedTechnical {
-		t.Fatal("neither startup outcome was persisted")
-	}
+	require.NoError(t, err)
+	require.False(t, stored.Status != domain.ApplicationStatusPendingIdentityVerification && stored.Status != domain.ApplicationStatusFailedTechnical, "neither startup outcome was persisted")
 	for result := range results {
-		if result.err != nil {
-			t.Fatal(result.err)
-		}
+		require.NoError(t, result.err)
 		assertApplication(t, result.app, stored)
 	}
 }

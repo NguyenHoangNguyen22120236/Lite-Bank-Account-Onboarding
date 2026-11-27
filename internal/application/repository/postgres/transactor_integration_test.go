@@ -3,16 +3,16 @@ package postgres
 import (
 	"context"
 	"errors"
-	"testing"
-
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"strings"
+	"testing"
 
 	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/application/domain"
 	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/application/repository"
 	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/application/service"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stretchr/testify/require"
 )
 
 type statusFailurePool struct{ *pgxpool.Pool }
@@ -43,7 +43,7 @@ func (tx statusFailureTx) QueryRow(ctx context.Context, query string, args ...an
 type unexpectedWorkflowStarter struct{ t *testing.T }
 
 func (s unexpectedWorkflowStarter) EnsureStarted(context.Context, string, string) (service.WorkflowStartOutcome, error) {
-	s.t.Fatal("workflow started after failed transaction")
+	require.FailNow(s.t, "workflow started after failed transaction")
 	return 0, nil
 }
 
@@ -55,16 +55,10 @@ func TestIntegrationServiceTransactionsRollbackAssociatedRecords(t *testing.T) {
 	t.Run("terms insert rolled back after status failure", func(t *testing.T) {
 		app := termsFixture(t, ctx, pool, domain.ApplicationStatusPendingTermsAcceptance)
 		err := service.NewAcceptTermsService(transactor, apps).AcceptTerms(ctx, app.ApplicationID.String(), "v1")
-		if !errors.Is(err, repository.ErrDatabase) {
-			t.Fatalf("got %v, want database error", err)
-		}
-		if terms := readTerms(t, ctx, pool, app.ApplicationID); len(terms) != 0 {
-			t.Fatal("terms survived failed status update")
-		}
+		require.ErrorIs(t, err, repository.ErrDatabase)
+		require.Empty(t, readTerms(t, ctx, pool, app.ApplicationID), "terms survived failed status update")
 		got, err := NewApplicationRepository(pool).GetByID(ctx, app.ApplicationID)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		assertApplication(t, got, app)
 	})
 	t.Run("identity insert rolled back after status failure", func(t *testing.T) {
@@ -73,16 +67,11 @@ func TestIntegrationServiceTransactionsRollbackAssociatedRecords(t *testing.T) {
 		identity := &domain.Identity{IDNumber: input.IdNumber, FullName: input.FullName, DateOfBirth: input.DateOfBirth,
 			IDExpiryDate: input.IdExpiryDate, PhoneNumber: input.PhoneNumber, Email: input.Email}
 		got, err := service.NewSubmitIdentityService(transactor, apps, unexpectedWorkflowStarter{t}).SubmitIdentity(ctx, app.ApplicationID.String(), identity)
-		if !errors.Is(err, repository.ErrDatabase) || got != (domain.Application{}) {
-			t.Fatalf("got %+v, %v", got, err)
-		}
-		if readIdentity(t, ctx, pool, app.ApplicationID) != nil {
-			t.Fatal("identity survived failed status update")
-		}
+		require.ErrorIs(t, err, repository.ErrDatabase)
+		require.Equal(t, (domain.Application{}), got)
+		require.Nil(t, readIdentity(t, ctx, pool, app.ApplicationID), "identity survived failed status update")
 		stored, err := NewApplicationRepository(pool).GetByID(ctx, app.ApplicationID)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		assertApplication(t, stored, app)
 	})
 }

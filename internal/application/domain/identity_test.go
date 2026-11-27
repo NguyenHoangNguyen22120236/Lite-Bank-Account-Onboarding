@@ -1,10 +1,11 @@
 package domain
 
 import (
-	"errors"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func validIdentity() Identity {
@@ -33,21 +34,15 @@ func TestIdentityStructure(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			i := validIdentity()
 			tc.change(&i)
-			if !errors.Is(ValidateIdentityStructure(&i), ErrInvalidIdentity) {
-				t.Fatal("expected invalid identity")
-			}
+			require.ErrorIs(t, ValidateIdentityStructure(&i), ErrInvalidIdentity)
 		})
 	}
-	if !errors.Is(ValidateIdentityStructure(nil), ErrInvalidIdentity) {
-		t.Fatal("nil identity accepted")
-	}
+	require.ErrorIs(t, ValidateIdentityStructure(nil), ErrInvalidIdentity)
 	i := validIdentity()
 	i.PhoneNumber = strings.Repeat("界", 20)
 	email := ""
 	i.Email = &email
-	if err := ValidateIdentityStructure(&i); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, ValidateIdentityStructure(&i))
 }
 
 func TestIdentityCalendar(t *testing.T) {
@@ -67,18 +62,15 @@ func TestIdentityCalendar(t *testing.T) {
 			i := validIdentity()
 			i.DateOfBirth, i.IDExpiryDate = tc.birth, tc.expiry
 			now, _ := time.Parse("2006-01-02", tc.today)
-			if err := ValidateIdentityDates(i, now); (err == nil) != tc.valid {
-				t.Fatalf("valid=%t, error=%v", tc.valid, err)
-			}
+			err := ValidateIdentityDates(i, now)
+			require.Equal(t, tc.valid, err == nil)
 		})
 	}
 	// The local date is November 24, but the UTC date is November 23.
 	i := validIdentity()
 	i.DateOfBirth = "2008-11-24"
 	now := time.Date(2026, 11, 24, 1, 0, 0, 0, time.FixedZone("ICT", 7*3600))
-	if !errors.Is(ValidateIdentityDates(i, now), ErrInvalidIdentity) {
-		t.Fatal("calendar must use UTC")
-	}
+	require.ErrorIs(t, ValidateIdentityDates(i, now), ErrInvalidIdentity)
 }
 
 func TestIdentityEquality(t *testing.T) {
@@ -93,22 +85,16 @@ func TestIdentityEquality(t *testing.T) {
 	} {
 		other := original
 		change(&other)
-		if EqualIdentity(original, other) {
-			t.Fatal("different identity compared equal")
-		}
+		require.False(t, EqualIdentity(original, other))
 	}
 	a, b := "Example@test", "Example@test"
 	original.Email = &a
 	other := original
 	other.Email = &b
 	other.CreatedAt = time.Now()
-	if !EqualIdentity(original, other) {
-		t.Fatal("value equality must ignore pointer addresses and timestamps")
-	}
+	require.True(t, EqualIdentity(original, other))
 	b = "example@test"
-	if EqualIdentity(original, other) {
-		t.Fatal("email equality must be case sensitive")
-	}
+	require.False(t, EqualIdentity(original, other))
 }
 
 func TestIdentitySubmissionDecision(t *testing.T) {
@@ -121,30 +107,26 @@ func TestIdentitySubmissionDecision(t *testing.T) {
 		t.Run(string(status), func(t *testing.T) {
 			replay, err := CheckIdentitySubmission(status, nil, i, now)
 			if status == ApplicationStatusPendingIdentitySubmission {
-				if err != nil || replay {
-					t.Fatalf("first submission: %t, %v", replay, err)
-				}
-			} else if !errors.Is(err, ErrInvalidIdentityState) {
-				t.Fatalf("expected invalid state, got %v", err)
+				require.NoError(t, err)
+				require.False(t, replay)
+			} else {
+				require.ErrorIs(t, err, ErrInvalidIdentityState)
 			}
 			replay, err = CheckIdentitySubmission(status, &i, i, now.AddDate(20, 0, 0))
 			progressed := status.Valid() && status != ApplicationStatusPendingTermsAcceptance && status != ApplicationStatusPendingIdentitySubmission
 			if progressed {
-				if err != nil || !replay {
-					t.Fatalf("durable replay: %t, %v", replay, err)
-				}
+				require.NoError(t, err)
+				require.True(t, replay)
 				changed := i
 				changed.FullName += "x"
-				if _, err := CheckIdentitySubmission(status, &i, changed, now); !errors.Is(err, ErrConflictingIdentity) {
-					t.Fatalf("expected conflict, got %v", err)
-				}
-			} else if !errors.Is(err, ErrInvalidIdentityState) {
-				t.Fatalf("inconsistent state accepted: %v", err)
+				_, err = CheckIdentitySubmission(status, &i, changed, now)
+				require.ErrorIs(t, err, ErrConflictingIdentity)
+			} else {
+				require.ErrorIs(t, err, ErrInvalidIdentityState)
 			}
 		})
 	}
 	i.IDExpiryDate = "2026-11-23"
-	if _, err := CheckIdentitySubmission(ApplicationStatusPendingIdentitySubmission, nil, i, now); !errors.Is(err, ErrInvalidIdentity) {
-		t.Fatal("expired first submission accepted")
-	}
+	_, err := CheckIdentitySubmission(ApplicationStatusPendingIdentitySubmission, nil, i, now)
+	require.ErrorIs(t, err, ErrInvalidIdentity)
 }

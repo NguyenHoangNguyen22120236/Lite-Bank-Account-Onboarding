@@ -10,15 +10,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"google.golang.org/protobuf/encoding/protojson"
-
 	onboardingv1 "github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/gen/onboarding/v1"
 	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/gen/onboarding/v1/onboardingv1connect"
 	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/application/domain"
 	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/application/handler"
 	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/application/service"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 // Each call constructs fresh layers; no HTTP listener or process-local replay cache.
@@ -40,28 +41,18 @@ func acceptTermsRPC(ctx context.Context, pool *pgxpool.Pool, id, term string) *h
 
 func assertTermsRPC(t *testing.T, response *httptest.ResponseRecorder, status int, code string) {
 	t.Helper()
-	if response.Code != status {
-		t.Fatalf("HTTP status=%d, want %d", response.Code, status)
-	}
+	require.Equal(t, status, response.Code)
 	if code != "" {
 		var failure struct {
 			Code string `json:"code"`
 		}
-		if err := json.Unmarshal(response.Body.Bytes(), &failure); err != nil {
-			t.Fatal(err)
-		}
-		if failure.Code != code {
-			t.Fatalf("RPC code=%q, want %q", failure.Code, code)
-		}
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &failure))
+		require.Equal(t, code, failure.Code)
 		return
 	}
 	var result onboardingv1.AcceptTermsResponse
-	if err := protojson.Unmarshal(response.Body.Bytes(), &result); err != nil {
-		t.Fatal(err)
-	}
-	if !result.Accepted {
-		t.Fatal("expected accepted=true")
-	}
+	require.NoError(t, protojson.Unmarshal(response.Body.Bytes(), &result))
+	require.True(t, result.Accepted, "expected accepted=true")
 }
 
 func termsFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, status domain.ApplicationStatus) domain.Application {
@@ -73,13 +64,10 @@ func termsFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, status 
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if _, err := pool.Exec(cleanupCtx, "DELETE FROM terms_acceptances WHERE application_id=$1", app.ApplicationID); err != nil {
-			t.Error("could not clean up test terms (details omitted)")
-		}
+		_, cleanupErr := pool.Exec(cleanupCtx, "DELETE FROM terms_acceptances WHERE application_id=$1", app.ApplicationID)
+		assert.True(t, cleanupErr == nil, "could not clean up test terms (details omitted)")
 	})
-	if err := NewApplicationRepository(pool).Create(ctx, app); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, NewApplicationRepository(pool).Create(ctx, app))
 	return app
 }
 
@@ -92,21 +80,15 @@ type storedTerms struct {
 func readTerms(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) []storedTerms {
 	t.Helper()
 	rows, err := pool.Query(ctx, "SELECT acceptance_id, term_id, accepted_at FROM terms_acceptances WHERE application_id=$1", id)
-	if err != nil {
-		t.Fatal("read terms failed (details omitted)")
-	}
+	require.True(t, err == nil, "read terms failed (details omitted)")
 	defer rows.Close()
 	var result []storedTerms
 	for rows.Next() {
 		var a storedTerms
-		if err := rows.Scan(&a.id, &a.term, &a.at); err != nil {
-			t.Fatal("scan terms failed")
-		}
+		require.True(t, rows.Scan(&a.id, &a.term, &a.at) == nil, "scan terms failed")
 		result = append(result, a)
 	}
-	if rows.Err() != nil {
-		t.Fatal("read terms failed (details omitted)")
-	}
+	require.True(t, rows.Err() == nil, "read terms failed (details omitted)")
 	return result
 }
 
@@ -116,34 +98,29 @@ func TestIntegrationAcceptTermsAndReplay(t *testing.T) {
 	before := time.Now().UTC().Truncate(time.Microsecond)
 	assertTermsRPC(t, acceptTermsRPC(ctx, pool, app.ApplicationID.String(), " V1 "), http.StatusOK, "")
 	terms := readTerms(t, ctx, pool, app.ApplicationID)
-	if len(terms) != 1 {
-		t.Fatalf("got %d acceptances, want one", len(terms))
-	}
+	require.Len(t, terms, 1)
 	a := terms[0]
-	if a.id == uuid.Nil || a.term != " V1 " || a.at.Before(before) || a.at.After(time.Now()) {
-		t.Fatalf("unexpected acceptance: %+v", a)
-	}
+	require.NotEqual(t, uuid.Nil, a.id)
+	require.Equal(t, " V1 ", a.term)
+	require.False(t, a.at.Before(before))
+	require.False(t, a.at.After(time.Now()))
 	app.Status, app.UpdatedAt = domain.ApplicationStatusPendingIdentitySubmission, a.at
 	stored, err := NewApplicationRepository(pool).GetByID(ctx, app.ApplicationID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertApplication(t, stored, app)
 	for _, status := range []domain.ApplicationStatus{domain.ApplicationStatusPendingIdentitySubmission, domain.ApplicationStatusPendingIdentityVerification} {
-		if _, err := pool.Exec(ctx, "UPDATE applications SET status=$2 WHERE application_id=$1", app.ApplicationID, string(status)); err != nil {
-			t.Fatal("set replay fixture state failed")
-		}
+		_, err = pool.Exec(ctx, "UPDATE applications SET status=$2 WHERE application_id=$1", app.ApplicationID, string(status))
+		require.True(t, err == nil, "set replay fixture state failed")
 		app.Status = status
 		assertTermsRPC(t, acceptTermsRPC(ctx, pool, app.ApplicationID.String(), " V1 "), http.StatusOK, "")
 		stored, err = NewApplicationRepository(pool).GetByID(ctx, app.ApplicationID)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		assertApplication(t, stored, app)
 		again := readTerms(t, ctx, pool, app.ApplicationID)
-		if len(again) != 1 || again[0].id != a.id || again[0].term != a.term || !again[0].at.Equal(a.at) {
-			t.Fatal("replay changed acceptance")
-		}
+		require.Len(t, again, 1, "replay changed acceptance")
+		require.Equal(t, a.id, again[0].id, "replay changed acceptance")
+		require.Equal(t, a.term, again[0].term, "replay changed acceptance")
+		require.True(t, again[0].at.Equal(a.at), "replay changed acceptance")
 	}
 }
 
@@ -162,23 +139,20 @@ func TestIntegrationAcceptTermsErrors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			app := termsFixture(t, ctx, pool, tc.status)
 			if tc.existing != "" {
-				if _, err := pool.Exec(ctx, "INSERT INTO terms_acceptances (acceptance_id, application_id, term_id, accepted_at) VALUES ($1,$2,$3,$4)", uuid.New(), app.ApplicationID, tc.existing, app.UpdatedAt); err != nil {
-					t.Fatal("seed acceptance failed")
-				}
+				_, acceptanceErr := pool.Exec(ctx, "INSERT INTO terms_acceptances (acceptance_id, application_id, term_id, accepted_at) VALUES ($1,$2,$3,$4)", uuid.New(), app.ApplicationID, tc.existing, app.UpdatedAt)
+				require.True(t, acceptanceErr == nil, "seed acceptance failed")
 			}
 			original := readTerms(t, ctx, pool, app.ApplicationID)
 			assertTermsRPC(t, acceptTermsRPC(ctx, pool, app.ApplicationID.String(), tc.term), tc.httpStatus, tc.code)
 			stored, err := NewApplicationRepository(pool).GetByID(ctx, app.ApplicationID)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			assertApplication(t, stored, app)
 			after := readTerms(t, ctx, pool, app.ApplicationID)
-			if len(after) != len(original) {
-				t.Fatal("failed request changed acceptance count")
-			}
-			if len(after) == 1 && (after[0].id != original[0].id || after[0].term != original[0].term || !after[0].at.Equal(original[0].at)) {
-				t.Fatal("failed request changed acceptance")
+			require.Len(t, after, len(original), "failed request changed acceptance count")
+			if len(after) == 1 {
+				require.Equal(t, original[0].id, after[0].id, "failed request changed acceptance")
+				require.Equal(t, original[0].term, after[0].term, "failed request changed acceptance")
+				require.True(t, after[0].at.Equal(original[0].at), "failed request changed acceptance")
 			}
 		})
 	}
@@ -225,18 +199,13 @@ func TestIntegrationAcceptTermsConcurrent(t *testing.T) {
 			if same {
 				want = 2
 			}
-			if successes != want {
-				t.Fatalf("got %d successes, want %d", successes, want)
-			}
+			require.Equal(t, want, successes)
 			accepted := readTerms(t, ctx, pool, app.ApplicationID)
-			if len(accepted) != 1 || accepted[0].term != terms[winner] {
-				t.Fatal("concurrent requests did not preserve one winning acceptance")
-			}
+			require.Len(t, accepted, 1, "concurrent requests did not preserve one winning acceptance")
+			require.Equal(t, terms[winner], accepted[0].term, "concurrent requests did not preserve one winning acceptance")
 			app.Status, app.UpdatedAt = domain.ApplicationStatusPendingIdentitySubmission, accepted[0].at
 			stored, err := NewApplicationRepository(pool).GetByID(ctx, app.ApplicationID)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			assertApplication(t, stored, app)
 		})
 	}

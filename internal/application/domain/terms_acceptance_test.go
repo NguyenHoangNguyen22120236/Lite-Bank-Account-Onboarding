@@ -1,8 +1,9 @@
 package domain
 
 import (
-	"errors"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // CheckTermsAcceptance returns replay=true only when no write is needed.
@@ -27,9 +28,8 @@ func TestCheckTermsAcceptance(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			replay, err := CheckTermsAcceptance(tc.status, tc.existing, "terms-v1")
-			if replay != tc.replay || !errors.Is(err, tc.want) {
-				t.Fatalf("got replay=%t, error=%v; want %t, %v", replay, err, tc.replay, tc.want)
-			}
+			require.Equal(t, tc.replay, replay)
+			require.ErrorIs(t, err, tc.want)
 		})
 	}
 }

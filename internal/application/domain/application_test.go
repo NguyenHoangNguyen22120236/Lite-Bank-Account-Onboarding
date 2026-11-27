@@ -5,24 +5,25 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewApplication(t *testing.T) {
 	id, requestID := uuid.New(), uuid.New()
 	now := time.Date(2026, 11, 21, 10, 20, 30, 123456000, time.FixedZone("ICT", 7*60*60))
 	got, err := NewApplication(id, requestID, now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.ApplicationID != id || got.RequestID != requestID || got.TemporalWorkflowID != id.String() {
-		t.Fatalf("unexpected identifiers: %+v", got)
-	}
-	if got.Status != ApplicationStatusPendingTermsAcceptance || got.CompletedAt != nil || got.RejectedAtStep != nil {
-		t.Fatalf("unexpected initial state: %+v", got)
-	}
-	if !got.CreatedAt.Equal(now) || !got.UpdatedAt.Equal(now) || got.CreatedAt.Location() != time.UTC || got.UpdatedAt.Location() != time.UTC {
-		t.Fatalf("timestamps must preserve the supplied instant in UTC: %+v", got)
-	}
+	require.NoError(t, err)
+	require.Equal(t, id, got.ApplicationID)
+	require.Equal(t, requestID, got.RequestID)
+	require.Equal(t, id.String(), got.TemporalWorkflowID)
+	require.Equal(t, ApplicationStatusPendingTermsAcceptance, got.Status)
+	require.Nil(t, got.CompletedAt)
+	require.Nil(t, got.RejectedAtStep)
+	require.True(t, got.CreatedAt.Equal(now))
+	require.True(t, got.UpdatedAt.Equal(now))
+	require.Equal(t, time.UTC, got.CreatedAt.Location())
+	require.Equal(t, time.UTC, got.UpdatedAt.Location())
 }
 
 func TestNewApplicationRejectsInvalidInputs(t *testing.T) {
@@ -37,9 +38,8 @@ func TestNewApplicationRejectsInvalidInputs(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := NewApplication(tc.id, tc.requestID, tc.now)
-			if err == nil || got != (Application{}) {
-				t.Fatalf("expected error and zero application, got %+v, %v", got, err)
-			}
+			require.Error(t, err)
+			require.Equal(t, (Application{}), got)
 		})
 	}
 }
@@ -53,26 +53,18 @@ func TestApplicationStatusValid(t *testing.T) {
 		ApplicationStatusPendingAccountCreation, ApplicationStatusFailedTechnical,
 	}
 	for _, status := range valid {
-		if !status.Valid() {
-			t.Errorf("expected valid status: %q", status)
-		}
+		assert.True(t, status.Valid())
 	}
 	for _, status := range []ApplicationStatus{"", "APPLICATION_STATUS_UNSPECIFIED", "UNKNOWN"} {
-		if status.Valid() {
-			t.Errorf("unexpected valid status: %q", status)
-		}
+		assert.False(t, status.Valid())
 	}
 }
 
 func TestRejectedAtStepValid(t *testing.T) {
 	for _, step := range []RejectedAtStep{RejectedAtStepIdentityVerification, RejectedAtStepHumanReview} {
-		if !step.Valid() {
-			t.Errorf("expected valid rejection step: %q", step)
-		}
+		assert.True(t, step.Valid())
 	}
 	for _, step := range []RejectedAtStep{"", "REJECTED_AT_STEP_UNSPECIFIED", "UNKNOWN"} {
-		if step.Valid() {
-			t.Errorf("unexpected valid rejection step: %q", step)
-		}
+		assert.False(t, step.Valid())
 	}
 }

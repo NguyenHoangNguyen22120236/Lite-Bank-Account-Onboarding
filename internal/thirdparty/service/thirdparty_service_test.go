@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"reflect"
 	"testing"
 
 	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/thirdparty/domain"
 	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/thirdparty/service"
+	"github.com/stretchr/testify/require"
 )
 
 type verifierFunc func(context.Context, domain.Identity) (bool, error)
@@ -25,13 +25,12 @@ func TestVerifyIdentityRejectsInvalidInputBeforeProvider(t *testing.T) {
 	malformed := validIdentity()
 	malformed.IDNumber = "bad"
 	s := service.New(verifierFunc(func(context.Context, domain.Identity) (bool, error) {
-		t.Fatal("invalid input reached provider")
+		require.FailNow(t, "invalid input reached provider")
 		return false, nil
 	}))
 	for _, input := range []*domain.Identity{nil, &malformed} {
-		if _, err := s.VerifyIdentity(context.Background(), input); !errors.Is(err, domain.ErrInvalidIdentity) {
-			t.Fatalf("error = %v, want invalid identity", err)
-		}
+		_, err := s.VerifyIdentity(context.Background(), input)
+		require.ErrorIs(t, err, domain.ErrInvalidIdentity)
 	}
 }
 
@@ -44,14 +43,14 @@ func TestVerifyIdentityForwardsContextAndInput(t *testing.T) {
 	calls := 0
 	s := service.New(verifierFunc(func(gotCtx context.Context, got domain.Identity) (bool, error) {
 		calls++
-		if gotCtx != ctx || !reflect.DeepEqual(got, i) {
-			t.Fatal("context or identity changed")
-		}
+		require.True(t, gotCtx == ctx, "caller context changed")
+		require.Equal(t, i, got)
 		return true, nil
 	}))
-	if got, err := s.VerifyIdentity(ctx, &i); !got || err != nil || calls != 1 {
-		t.Fatalf("got %v, %v, calls=%d", got, err, calls)
-	}
+	got, err := s.VerifyIdentity(ctx, &i)
+	require.NoError(t, err)
+	require.True(t, got)
+	require.Equal(t, 1, calls)
 }
 
 func TestVerifyIdentityProviderOutcomes(t *testing.T) {
@@ -73,9 +72,9 @@ func TestVerifyIdentityProviderOutcomes(t *testing.T) {
 				return false, tt.err
 			}))
 			got, err := s.VerifyIdentity(context.Background(), &i)
-			if got || !errors.Is(err, tt.err) || calls != 1 {
-				t.Fatalf("got %v, %v, calls=%d", got, err, calls)
-			}
+			require.False(t, got)
+			require.ErrorIs(t, err, tt.err)
+			require.Equal(t, 1, calls)
 		})
 	}
 }
@@ -85,10 +84,9 @@ func TestVerifyIdentityCanceledContextSkipsProvider(t *testing.T) {
 	cancel()
 	i := validIdentity()
 	s := service.New(verifierFunc(func(context.Context, domain.Identity) (bool, error) {
-		t.Fatal("canceled request reached provider")
+		require.FailNow(t, "canceled request reached provider")
 		return false, nil
 	}))
-	if _, err := s.VerifyIdentity(ctx, &i); !errors.Is(err, context.Canceled) {
-		t.Fatalf("error = %v, want canceled", err)
-	}
+	_, err := s.VerifyIdentity(ctx, &i)
+	require.ErrorIs(t, err, context.Canceled)
 }

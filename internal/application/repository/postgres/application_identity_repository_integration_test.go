@@ -7,8 +7,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -20,6 +18,8 @@ import (
 	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/application/service"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
@@ -57,24 +57,16 @@ func assertIdentityRPC(t *testing.T, response *httptest.ResponseRecorder, id uui
 		var failure struct {
 			Code string `json:"code"`
 		}
-		if err := json.Unmarshal(response.Body.Bytes(), &failure); err != nil {
-			t.Fatal("invalid RPC error JSON")
-		}
-		if response.Code != wantHTTP || failure.Code != code {
-			t.Fatalf("HTTP=%d, code=%q; want %d, %q", response.Code, failure.Code, wantHTTP, code)
-		}
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &failure))
+		require.Equal(t, wantHTTP, response.Code)
+		require.Equal(t, code, failure.Code)
 		return
 	}
-	if response.Code != http.StatusOK {
-		t.Fatalf("HTTP=%d, want success", response.Code)
-	}
+	require.Equal(t, http.StatusOK, response.Code)
 	var result onboardingv1.SubmitIdentityResponse
-	if err := protojson.Unmarshal(response.Body.Bytes(), &result); err != nil {
-		t.Fatal(err)
-	}
-	if result.ApplicationId != id.String() || result.Status.String() != string(status) {
-		t.Fatalf("unexpected result: id=%q status=%s", result.ApplicationId, result.Status)
-	}
+	require.NoError(t, protojson.Unmarshal(response.Body.Bytes(), &result))
+	require.Equal(t, id.String(), result.ApplicationId)
+	require.Equal(t, string(status), result.Status.String())
 }
 
 func identityFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, status domain.ApplicationStatus) domain.Application {
@@ -83,14 +75,12 @@ func identityFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, stat
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if _, err := pool.Exec(cleanupCtx, "DELETE FROM application_identities WHERE application_id=$1", app.ApplicationID); err != nil {
-			t.Error("identity cleanup failed (details omitted)")
-		}
+		_, cleanupErr := pool.Exec(cleanupCtx, "DELETE FROM application_identities WHERE application_id=$1", app.ApplicationID)
+		assert.True(t, cleanupErr == nil, "identity cleanup failed (details omitted)")
 	})
 	if status != domain.ApplicationStatusPendingTermsAcceptance {
-		if _, err := pool.Exec(ctx, "INSERT INTO terms_acceptances (acceptance_id, application_id, term_id, accepted_at) VALUES ($1,$2,$3,$4)", uuid.New(), app.ApplicationID, "v1", app.UpdatedAt); err != nil {
-			t.Fatal("seed terms failed")
-		}
+		_, termsErr := pool.Exec(ctx, "INSERT INTO terms_acceptances (acceptance_id, application_id, term_id, accepted_at) VALUES ($1,$2,$3,$4)", uuid.New(), app.ApplicationID, "v1", app.UpdatedAt)
+		require.True(t, termsErr == nil, "seed terms failed")
 	}
 	return app
 }
@@ -104,23 +94,15 @@ type identitySnapshot struct {
 func readIdentity(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) *identitySnapshot {
 	t.Helper()
 	rows, err := pool.Query(ctx, `SELECT id_number, full_name, date_of_birth::text, id_expiry_date::text, phone_number, email, created_at FROM application_identities WHERE application_id=$1`, id)
-	if err != nil {
-		t.Fatal("read identity failed")
-	}
+	require.True(t, err == nil, "read identity failed")
 	defer rows.Close()
 	var result *identitySnapshot
 	for rows.Next() {
-		if result != nil {
-			t.Fatal("multiple stored identities")
-		}
+		require.Nil(t, result, "multiple stored identities")
 		result = &identitySnapshot{}
-		if err := rows.Scan(&result.ID, &result.Name, &result.Birth, &result.Expiry, &result.Phone, &result.Email, &result.CreatedAt); err != nil {
-			t.Fatal("scan identity failed")
-		}
+		require.True(t, rows.Scan(&result.ID, &result.Name, &result.Birth, &result.Expiry, &result.Phone, &result.Email, &result.CreatedAt) == nil, "scan identity failed")
 	}
-	if rows.Err() != nil {
-		t.Fatal("read identity failed")
-	}
+	require.True(t, rows.Err() == nil, "read identity failed")
 	return result
 }
 
@@ -142,54 +124,37 @@ func TestIntegrationSubmitIdentityPersistenceAndReplay(t *testing.T) {
 			before := time.Now().UTC().Truncate(time.Microsecond)
 			assertIdentityRPC(t, submitIdentityRPC(ctx, pool, app.ApplicationID.String(), input), app.ApplicationID, domain.ApplicationStatusPendingIdentityVerification, "")
 			stored := readIdentity(t, ctx, pool, app.ApplicationID)
-			if stored == nil {
-				t.Fatal("identity missing after success")
-			}
+			require.NotNil(t, stored, "identity missing after success")
 			want := &identitySnapshot{ID: input.IdNumber, Name: input.FullName, Birth: input.DateOfBirth, Expiry: input.IdExpiryDate, Phone: input.PhoneNumber, Email: input.Email, CreatedAt: stored.CreatedAt}
-			if !reflect.DeepEqual(stored, want) || stored.CreatedAt.Before(before) || stored.CreatedAt.After(time.Now()) {
-				t.Fatal("identity fields, optional email, or timestamp incorrect")
-			}
+			require.Equal(t, want, stored, "identity fields, optional email, or timestamp incorrect")
+			require.False(t, stored.CreatedAt.Before(before), "identity fields, optional email, or timestamp incorrect")
+			require.False(t, stored.CreatedAt.After(time.Now()), "identity fields, optional email, or timestamp incorrect")
 			app.Status = domain.ApplicationStatusPendingIdentityVerification
 			got, err := NewApplicationRepository(pool).GetByID(ctx, app.ApplicationID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got.UpdatedAt.Before(stored.CreatedAt) || got.UpdatedAt.After(time.Now()) {
-				t.Fatal("startup transition timestamp outside submission interval")
-			}
+			require.NoError(t, err)
+			require.False(t, got.UpdatedAt.Before(stored.CreatedAt), "startup transition timestamp outside submission interval")
+			require.False(t, got.UpdatedAt.After(time.Now()), "startup transition timestamp outside submission interval")
 			app.UpdatedAt = got.UpdatedAt
 			assertApplication(t, got, app)
 			assertIdentityRPC(t, submitIdentityRPC(ctx, pool, app.ApplicationID.String(), input), app.ApplicationID, app.Status, "")
-			if !reflect.DeepEqual(readIdentity(t, ctx, pool, app.ApplicationID), stored) {
-				t.Fatal("replay modified identity")
-			}
+			require.Equal(t, stored, readIdentity(t, ctx, pool, app.ApplicationID), "replay modified identity")
 			got, err = NewApplicationRepository(pool).GetByID(ctx, app.ApplicationID)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			assertApplication(t, got, app)
 			// Seed an already accepted expired identity and progressed state; replay must not revalidate expiry.
 			input.IdExpiryDate = "2001-01-01"
 			stored.Expiry = input.IdExpiryDate
-			if _, err := pool.Exec(ctx, "UPDATE application_identities SET id_expiry_date=$2 WHERE application_id=$1", app.ApplicationID, input.IdExpiryDate); err != nil {
-				t.Fatal("seed expired identity failed")
-			}
-			if _, err := pool.Exec(ctx, "UPDATE applications SET status=$2 WHERE application_id=$1", app.ApplicationID, string(domain.ApplicationStatusCompleted)); err != nil {
-				t.Fatal("seed progressed status failed")
-			}
+			_, expiryErr := pool.Exec(ctx, "UPDATE application_identities SET id_expiry_date=$2 WHERE application_id=$1", app.ApplicationID, input.IdExpiryDate)
+			require.True(t, expiryErr == nil, "seed expired identity failed")
+			_, progressErr := pool.Exec(ctx, "UPDATE applications SET status=$2 WHERE application_id=$1", app.ApplicationID, string(domain.ApplicationStatusCompleted))
+			require.True(t, progressErr == nil, "seed progressed status failed")
 			app.Status = domain.ApplicationStatusCompleted
 			assertIdentityRPC(t, submitIdentityRPC(ctx, pool, app.ApplicationID.String(), input), app.ApplicationID, app.Status, "")
-			if !reflect.DeepEqual(readIdentity(t, ctx, pool, app.ApplicationID), stored) {
-				t.Fatal("progressed replay modified identity")
-			}
+			require.Equal(t, stored, readIdentity(t, ctx, pool, app.ApplicationID), "progressed replay modified identity")
 			got, err = NewApplicationRepository(pool).GetByID(ctx, app.ApplicationID)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			assertApplication(t, got, app)
-			if !reflect.DeepEqual(readTerms(t, ctx, pool, app.ApplicationID), terms) {
-				t.Fatal("submission modified terms")
-			}
+			require.Equal(t, terms, readTerms(t, ctx, pool, app.ApplicationID), "submission modified terms")
 		})
 	}
 }
@@ -215,9 +180,8 @@ func TestIntegrationSubmitIdentityConflictsAndStates(t *testing.T) {
 			app := identityFixture(t, ctx, pool, tc.status)
 			input := identityPayload()
 			if tc.existing {
-				if _, err := pool.Exec(ctx, `INSERT INTO application_identities (application_id,id_number,full_name,date_of_birth,id_expiry_date,phone_number,email,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, app.ApplicationID, input.IdNumber, input.FullName, input.DateOfBirth, input.IdExpiryDate, input.PhoneNumber, input.Email, app.UpdatedAt); err != nil {
-					t.Fatal("seed identity failed")
-				}
+				_, identityErr := pool.Exec(ctx, `INSERT INTO application_identities (application_id,id_number,full_name,date_of_birth,id_expiry_date,phone_number,email,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, app.ApplicationID, input.IdNumber, input.FullName, input.DateOfBirth, input.IdExpiryDate, input.PhoneNumber, input.Email, app.UpdatedAt)
+				require.True(t, identityErr == nil, "seed identity failed")
 			}
 			before := readIdentity(t, ctx, pool, app.ApplicationID)
 			switch tc.change {
@@ -231,13 +195,9 @@ func TestIntegrationSubmitIdentityConflictsAndStates(t *testing.T) {
 			}
 			assertIdentityRPC(t, submitIdentityRPC(ctx, pool, app.ApplicationID.String(), input), app.ApplicationID, "", tc.code)
 			got, err := NewApplicationRepository(pool).GetByID(ctx, app.ApplicationID)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			assertApplication(t, got, app)
-			if !reflect.DeepEqual(before, readIdentity(t, ctx, pool, app.ApplicationID)) {
-				t.Fatal("rejected request changed identity")
-			}
+			require.Equal(t, before, readIdentity(t, ctx, pool, app.ApplicationID), "rejected request changed identity")
 		})
 	}
 	assertIdentityRPC(t, submitIdentityRPC(ctx, pool, uuid.NewString(), identityPayload()), uuid.Nil, "", "not_found")
@@ -285,21 +245,15 @@ func TestIntegrationSubmitIdentityConcurrent(t *testing.T) {
 			if same {
 				want = 2
 			}
-			if successes != want {
-				t.Fatalf("successes=%d, want %d", successes, want)
-			}
+			require.Equal(t, want, successes)
 			stored := readIdentity(t, ctx, pool, app.ApplicationID)
-			if stored == nil || stored.Name != inputs[winner].FullName {
-				t.Fatal("winning identity not preserved")
-			}
+			require.NotNil(t, stored, "winning identity not preserved")
+			require.Equal(t, inputs[winner].FullName, stored.Name, "winning identity not preserved")
 			app.Status = domain.ApplicationStatusPendingIdentityVerification
 			got, err := NewApplicationRepository(pool).GetByID(ctx, app.ApplicationID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got.UpdatedAt.Before(stored.CreatedAt) || got.UpdatedAt.After(time.Now()) {
-				t.Fatal("startup transition timestamp outside submission interval")
-			}
+			require.NoError(t, err)
+			require.False(t, got.UpdatedAt.Before(stored.CreatedAt), "startup transition timestamp outside submission interval")
+			require.False(t, got.UpdatedAt.After(time.Now()), "startup transition timestamp outside submission interval")
 			app.UpdatedAt = got.UpdatedAt
 			assertApplication(t, got, app)
 		})
@@ -313,9 +267,7 @@ func TestIntegrationSubmitIdentityDatabaseErrors(t *testing.T) {
 	const sensitive = "synthetic-sensitive-driver-detail"
 	response := submitIdentityRPC(ctx, failingDB{errors.New(sensitive)}, app.ApplicationID.String(), identityPayload())
 	assertIdentityRPC(t, response, app.ApplicationID, "", "internal")
-	if strings.Contains(response.Body.String(), sensitive) {
-		t.Fatal("RPC exposed database detail")
-	}
+	require.NotContains(t, response.Body.String(), sensitive, "RPC exposed database detail")
 	for _, deadline := range []bool{false, true} {
 		requestCtx, cancel := context.WithCancel(ctx)
 		code := "canceled"
@@ -328,11 +280,7 @@ func TestIntegrationSubmitIdentityDatabaseErrors(t *testing.T) {
 		assertIdentityRPC(t, submitIdentityRPC(requestCtx, pool, app.ApplicationID.String(), identityPayload()), app.ApplicationID, "", code)
 	}
 	got, err := NewApplicationRepository(pool).GetByID(ctx, app.ApplicationID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertApplication(t, got, app)
-	if readIdentity(t, ctx, pool, app.ApplicationID) != nil {
-		t.Fatal("failed request stored identity")
-	}
+	require.Nil(t, readIdentity(t, ctx, pool, app.ApplicationID), "failed request stored identity")
 }
