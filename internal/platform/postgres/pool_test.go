@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestOpenRejectsInvalidDSN(t *testing.T) {
@@ -11,14 +13,13 @@ func TestOpenRejectsInvalidDSN(t *testing.T) {
 		t.Run(dsnLabel(dsn), func(t *testing.T) {
 			pool, err := Open(context.Background(), dsn)
 			if pool != nil {
-				pool.Close()
-				t.Fatal("invalid DSN returned a pool")
+				t.Cleanup(pool.Close)
 			}
-			if err == nil {
-				t.Fatal("invalid DSN must return an error")
-			}
-			if strings.Contains(err.Error(), "private-password") || (strings.TrimSpace(dsn) != "" && strings.Contains(err.Error(), dsn)) {
-				t.Fatal("error exposes connection credentials or the DSN")
+			require.True(t, pool == nil, "invalid DSN returned a pool")
+			require.Error(t, err)
+			require.False(t, strings.Contains(err.Error(), "private-password"), "error exposes connection credentials")
+			if strings.TrimSpace(dsn) != "" {
+				require.False(t, strings.Contains(err.Error(), dsn), "error exposes the DSN")
 			}
 		})
 	}

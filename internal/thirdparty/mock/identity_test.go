@@ -6,6 +6,7 @@ import (
 
 	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/thirdparty/domain"
 	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/thirdparty/mock"
+	"github.com/stretchr/testify/require"
 )
 
 func TestIdentityVerifier(t *testing.T) {
@@ -26,9 +27,8 @@ func TestIdentityVerifier(t *testing.T) {
 			i := domain.Identity{IDNumber: "000000000001", FullName: "Mock Citizen", DateOfBirth: "1990-01-01", IDExpiryDate: "2040-01-01", PhoneNumber: "0900000000"}
 			tt.change(&i)
 			got, err := p.VerifyIdentity(context.Background(), i)
-			if got != tt.want || err != nil {
-				t.Fatalf("got %v, %v; want %v, nil", got, err, tt.want)
-			}
+			require.Equal(t, tt.want, got)
+			require.NoError(t, err)
 		})
 	}
 }
@@ -45,14 +45,12 @@ func TestIdentityVerifierAdditionalRecords(t *testing.T) {
 	} {
 		t.Run(identity.IDNumber, func(t *testing.T) {
 			verified, err := p.VerifyIdentity(context.Background(), identity)
-			if !verified || err != nil {
-				t.Fatalf("got %v, %v; want true, nil", verified, err)
-			}
+			require.True(t, verified)
+			require.NoError(t, err)
 			identity.FullName = "Mismatched Name"
 			verified, err = p.VerifyIdentity(context.Background(), identity)
-			if verified || err != nil {
-				t.Fatalf("mismatch got %v, %v; want false, nil", verified, err)
-			}
+			require.False(t, verified)
+			require.NoError(t, err)
 		})
 	}
 }

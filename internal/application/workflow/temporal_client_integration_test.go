@@ -7,13 +7,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/application/service"
+	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/platform/config"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/client"
-
-	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/application/service"
-	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/platform/config"
 )
 
 // recordingTemporalClient forwards every call to the real Temporal client.
@@ -32,9 +33,7 @@ func (c *recordingTemporalClient) ExecuteWorkflow(ctx context.Context, options c
 }
 
 func TestIntegrationStartupReusesRunningWorkflow(t *testing.T) {
-	if err := config.LoadDotEnv("../../../.env"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, config.LoadDotEnv("../../../.env"))
 	// Explicit opt-in only: do not contact Temporal during ordinary unit tests.
 	address := os.Getenv("TEST_TEMPORAL_ADDRESS")
 	if address == "" {
@@ -47,9 +46,7 @@ func TestIntegrationStartupReusesRunningWorkflow(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	c, err := client.DialContext(ctx, client.Options{HostPort: address, Namespace: namespace})
-	if err != nil {
-		t.Fatal("cannot connect to test Temporal server (connection details omitted)")
-	}
+	require.True(t, err == nil, "cannot connect to test Temporal server (connection details omitted)")
 	t.Cleanup(c.Close)
 
 	id := uuid.NewString()
@@ -64,29 +61,22 @@ func TestIntegrationStartupReusesRunningWorkflow(t *testing.T) {
 		// The UUID is owned exclusively by this test, including uncertain starts.
 		err := c.TerminateWorkflow(cleanupCtx, id, "", "startup integration test cleanup")
 		var notFound *serviceerror.NotFound
-		if err != nil && !errors.As(err, &notFound) {
-			t.Error("could not terminate test workflow (details omitted)")
-		}
+		assert.False(t, err != nil && !errors.As(err, &notFound), "could not terminate test workflow (details omitted)")
 	})
 
 	for attempt := 1; attempt <= 2; attempt++ {
 		outcome, err := starter.EnsureStarted(ctx, id, id)
-		if err != nil || outcome != service.WorkflowStartEstablished {
-			t.Fatalf("start attempt %d: outcome=%v, error=%v", attempt, outcome, err)
-		}
+		require.NoError(t, err)
+		require.Equal(t, service.WorkflowStartEstablished, outcome)
 	}
-	if len(recording.runs) != 2 {
-		t.Fatalf("expected two successful real start calls, got %d", len(recording.runs))
-	}
+	require.Len(t, recording.runs, 2)
 	first, second := recording.runs[0], recording.runs[1]
-	if first.GetID() != id || second.GetID() != id || first.GetRunID() == "" || first.GetRunID() != second.GetRunID() {
-		t.Fatal("duplicate start did not return the same workflow ID and run ID")
-	}
+	require.Equal(t, id, first.GetID())
+	require.Equal(t, id, second.GetID())
+	require.NotEmpty(t, first.GetRunID())
+	require.Equal(t, second.GetRunID(), first.GetRunID())
 	response, err := c.DescribeWorkflow(ctx, id, first.GetRunID())
-	if err != nil {
-		t.Fatal("could not describe test workflow (details omitted)")
-	}
-	if response == nil || response.RawResponse.GetWorkflowExecutionInfo().GetStatus() != enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING {
-		t.Fatal("expected existing workflow execution to remain running")
-	}
+	require.True(t, err == nil, "could not describe test workflow (details omitted)")
+	require.NotNil(t, response)
+	require.Equal(t, enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING, response.RawResponse.GetWorkflowExecutionInfo().GetStatus())
 }

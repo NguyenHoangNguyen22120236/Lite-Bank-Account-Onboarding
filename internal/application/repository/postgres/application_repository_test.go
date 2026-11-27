@@ -3,16 +3,15 @@ package postgres
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
+	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/application/domain"
+	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/application/repository"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-
-	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/application/domain"
-	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/application/repository"
+	"github.com/stretchr/testify/require"
 )
 
 // This stub returns errors only; successful scanning is tested against PostgreSQL.
@@ -58,16 +57,10 @@ func TestCreateErrorClassification(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := NewApplicationRepository(failingDB{tc.cause}).Create(context.Background(), fixture())
-			if !errors.Is(err, tc.want) {
-				t.Fatalf("got %v, want %v", err, tc.want)
-			}
-			if strings.Contains(err.Error(), sensitive) {
-				t.Fatal("error exposes driver details")
-			}
+			require.ErrorIs(t, err, tc.want)
+			require.NotContains(t, err.Error(), sensitive, "error exposes driver details")
 			var pgerr *pgconn.PgError
-			if errors.As(err, &pgerr) {
-				t.Fatal("raw PostgreSQL error escaped")
-			}
+			require.False(t, errors.As(err, &pgerr), "raw PostgreSQL error escaped")
 		})
 	}
 }
@@ -82,9 +75,8 @@ func TestLookupErrorClassification(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := NewApplicationRepository(failingDB{tc.cause}).GetByID(context.Background(), uuid.New())
-			if !errors.Is(err, tc.want) || got != (domain.Application{}) {
-				t.Fatalf("expected zero application and %v, got %+v, %v", tc.want, got, err)
-			}
+			require.ErrorIs(t, err, tc.want)
+			require.Equal(t, (domain.Application{}), got)
 		})
 	}
 }
@@ -92,7 +84,5 @@ func TestLookupErrorClassification(t *testing.T) {
 func TestWorkflowStartupTransitionDatabaseFailure(t *testing.T) {
 	app := fixture()
 	_, err := resolveWorkflowStartForTest(context.Background(), failingDB{err: errors.New("synthetic driver failure")}, NewApplicationRepository(failingDB{err: errors.New("synthetic driver failure")}), app.ApplicationID, domain.ApplicationStatusPendingIdentityVerification, time.Now().UTC())
-	if !errors.Is(err, repository.ErrDatabase) {
-		t.Fatalf("database error classification lost: %v", err)
-	}
+	require.ErrorIs(t, err, repository.ErrDatabase)
 }

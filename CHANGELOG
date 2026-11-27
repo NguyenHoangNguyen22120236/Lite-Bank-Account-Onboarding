@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.10.2] - 2026-11-27
+
+Test tooling and application file organization cleanup.
+
+### Added
+
+- Mockery configuration and a `make mocks` target for regenerating application service, PostgreSQL database, and pgx test mocks.
+- Generated Testify mocks and focused terms-acceptance repository unit tests.
+
+### Changed
+
+- Standardize assertions across application, platform, and third-party tests on Testify; promote Testify v1.11.1 to a direct dependency.
+- Replace handwritten application service and transactor test doubles with generated mocks and update repository and integration test assertions.
+- Rename application use-case implementations and tests to `*_service.go` and `*_service_test.go`.
+- Rename the Main BE Temporal startup adapter and its tests from `startup` to `temporal_client`.
+- Consolidate workflow startup error definitions in the application service errors file.
+- Document mock generation and advance VERSION to 0.10.2.
+
+### Verification
+
+- Release documentation updated from the working tree; tests have not been rerun for this documentation update. CI verification and human review remain outstanding.
+
 ## [0.10.1] - 2026-11-27
 
 Application module structure and transaction ownership refactor.

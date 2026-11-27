@@ -1,0 +1,28 @@
+all: false
+template: testify
+dir: "{{.InterfaceDir}}"
+filename: "mocks_test.go"
+pkgname: "{{.SrcPackageName}}"
+structname: "Mock{{.InterfaceName}}"
+
+packages:
+  github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/application/repository/postgres:
+    interfaces:
+      TransactorDB:
+      ApplicationDB:
+  github.com/jackc/pgx/v5:
+    config:
+      dir: internal/application/repository/postgres
+      filename: pgx_mocks_test.go
+      pkgname: postgres
+    interfaces:
+      Tx:
+      Row:
+      Rows:
+  github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/application/service:
+    interfaces:
+      StartApplicationRepository:
+      AcceptTermsRepository:
+      SubmitIdentityRepository:
+      Transactor:
+      WorkflowStarter:

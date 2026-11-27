@@ -2,18 +2,17 @@ package workflow
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
+	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/application/service"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
 	workflowpb "go.temporal.io/api/workflow/v1"
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
-
-	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/application/service"
 )
 
 // Embedding the SDK interface lets these tests implement only the two calls
@@ -55,27 +54,29 @@ func TestStartupOptionsAndDeadline(t *testing.T) {
 			c := startupClient{execute: func(gotCtx context.Context, options client.StartWorkflowOptions, workflow interface{}, args ...interface{}) (client.WorkflowRun, error) {
 				calls++
 				deadline, ok := gotCtx.Deadline()
-				if !ok || deadline.After(time.Now().Add(3*time.Second)) || deadline.Before(before) {
-					t.Fatal("startup lacks a bounded deadline")
+				require.True(t, ok)
+				require.False(t, deadline.After(time.Now().Add(3*time.Second)))
+				require.False(t, deadline.Before(before))
+				if callerDeadline, ok := ctx.Deadline(); ok {
+					require.False(t, deadline.After(callerDeadline))
 				}
-				if callerDeadline, ok := ctx.Deadline(); ok && deadline.After(callerDeadline) {
-					t.Fatal("caller deadline extended")
-				}
-				if options.ID != id || options.TaskQueue != "bank-onboarding" || options.WorkflowIDReusePolicy != enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE || options.WorkflowIDConflictPolicy != enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING || !options.WorkflowExecutionErrorWhenAlreadyStarted {
-					t.Fatalf("unsafe start options: %+v", options)
-				}
-				if options.RetryPolicy != nil || options.WorkflowExecutionTimeout != 0 || options.WorkflowRunTimeout != 0 {
-					t.Fatal("startup configured workflow retries or lifetime timeout")
-				}
-				if workflow != "OnboardingWorkflow" || len(args) != 1 || args[0] != id {
-					t.Fatal("workflow must receive only application ID")
-				}
+				require.Equal(t, id, options.ID)
+				require.Equal(t, "bank-onboarding", options.TaskQueue)
+				require.Equal(t, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE, options.WorkflowIDReusePolicy)
+				require.Equal(t, enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING, options.WorkflowIDConflictPolicy)
+				require.True(t, options.WorkflowExecutionErrorWhenAlreadyStarted)
+				require.Nil(t, options.RetryPolicy)
+				require.Zero(t, options.WorkflowExecutionTimeout)
+				require.Zero(t, options.WorkflowRunTimeout)
+				require.Equal(t, "OnboardingWorkflow", workflow)
+				require.Len(t, args, 1)
+				require.Equal(t, id, args[0])
 				return startupRun{id: id, run: "run-1"}, nil
 			}}
 			got, err := New(c, "bank-onboarding").EnsureStarted(ctx, id, id)
-			if err != nil || got != service.WorkflowStartEstablished || calls != 1 {
-				t.Fatalf("got %v, %v; calls=%d", got, err, calls)
-			}
+			require.NoError(t, err)
+			require.Equal(t, service.WorkflowStartEstablished, got)
+			require.Equal(t, 1, calls)
 		})
 	}
 }
@@ -105,16 +106,18 @@ func TestStartupClosedDuplicateClassification(t *testing.T) {
 				describe: func(ctx context.Context, workflowID, runID string) (*client.WorkflowExecutionDescription, error) {
 					describes++
 					deadline, ok := ctx.Deadline()
-					if !ok || deadline.After(startupDeadline) || workflowID != id || runID != "existing-run" {
-						t.Fatal("describe must use exact run and remaining startup budget")
-					}
+					require.True(t, ok)
+					require.False(t, deadline.After(startupDeadline))
+					require.Equal(t, id, workflowID)
+					require.Equal(t, "existing-run", runID)
 					return &client.WorkflowExecutionDescription{RawResponse: &workflowservice.DescribeWorkflowExecutionResponse{WorkflowExecutionInfo: &workflowpb.WorkflowExecutionInfo{Status: tc.status}}}, nil
 				},
 			}
 			got, err := New(c, "bank-onboarding").EnsureStarted(context.Background(), id, id)
-			if err != nil || got != tc.want || starts != 1 || describes != 1 {
-				t.Fatalf("got %v %v; starts=%d describes=%d", got, err, starts, describes)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+			require.Equal(t, 1, starts)
+			require.Equal(t, 1, describes)
 		})
 	}
 }
@@ -146,9 +149,9 @@ func TestStartupErrorsDoNotRetry(t *testing.T) {
 				}
 				id := uuid.NewString()
 				_, err := New(c, "bank-onboarding").EnsureStarted(context.Background(), id, id)
-				if !errors.Is(err, tc.want) || starts != 1 || describes != map[bool]int{false: 0, true: 1}[describeFailure] {
-					t.Fatalf("error=%v starts=%d describes=%d", err, starts, describes)
-				}
+				require.ErrorIs(t, err, tc.want)
+				require.Equal(t, 1, starts)
+				require.Equal(t, map[bool]int{false: 0, true: 1}[describeFailure], describes)
 			})
 		}
 	}

@@ -2,7 +2,7 @@
 
 A Go backend training project for a lightweight bank account onboarding workflow. The API design covers starting an application, accepting terms, submitting identity details, verifying identity, screening sanctions, reviewing applications, and checking progress.
 
-Current version: **0.10.1** — Application module refactor: focused use-case services, aggregate-root persistence, and service-owned transaction boundaries. See [CHANGELOG](CHANGELOG) for release details.
+Current version: **0.10.2** — Testify assertions, Mockery-generated test mocks, and clearer application service and Temporal adapter filenames. See [CHANGELOG](CHANGELOG) for release details.
 
 The project uses Protocol Buffers and Connect RPC. StartApplication validates client request UUIDs, persists applications, and resolves retries durably using the unique request ID. AcceptTerms records acceptance and advances the application status atomically. SubmitIdentity validates customer identity, saves it, and advances status to `PENDING_WORKFLOW_START` in one transaction. Both operations use PostgreSQL row locks for concurrent requests and support durable replay. The application server manages its pgxpool lifecycle and loads local `.env` configuration. Remaining application RPCs are unimplemented. CI runs PostgreSQL integration tests against a disposable database using existing Goose migrations. Local PostgreSQL and Temporal Dev Server infrastructure is available through Docker Compose. PR 06 starts Temporal after identity persistence and conditionally records pending identity verification. The local worker runs a deterministic durable wait. Business activities, account operations, and human review remain deferred.
 
@@ -340,7 +340,17 @@ Shutdown removes the containers and network while preserving the `postgres_data`
 
 ## Development Tooling and Limitations
 
-The Makefile provides `proto`, `lint`, `fmt`, `vet`, `test`, `test-race`, `test-coverage`, `coverage-html`, `build`, and `ci` targets. With Make installed, `make run-app` and `make run-thirdparty` start the existing HTTP servers.
+The Makefile provides `proto`, `lint`, `fmt`, `vet`, `test`, `test-race`, `test-coverage`, `coverage-html`, `mocks`, `build`, and `ci` targets. With Make installed, `make run-app` and `make run-thirdparty` start the existing HTTP servers.
+
+Tests use Testify assertions and Mockery-generated mocks for application service
+dependencies, PostgreSQL database interfaces, and pgx transaction/row interfaces.
+With Mockery installed separately and available on `PATH`, run `make mocks`
+(or `mockery --config .mockery.yml`) from the repository root to regenerate the
+test mocks. Configuration lives in `.mockery.yml`; generated mocks are committed
+as `mocks_test.go` and `pgx_mocks_test.go` and should not be edited manually.
+Use-case implementations are named `start_application_service.go`,
+`accept_terms_service.go`, and `submit_identity_service.go`; the Main BE Temporal
+startup adapter is `internal/application/workflow/temporal_client.go`.
 
 Generate and view coverage for the package list configured in the Makefile:
 
