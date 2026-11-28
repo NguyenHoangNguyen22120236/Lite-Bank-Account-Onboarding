@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.10.3] - 2026-11-28
+
+Engineering guidelines and development workflow documentation.
+
+### Changed
+
+- Expand AGENTS.md with Clean Architecture, pragmatic DDD, SOLID, consumer-owned interfaces, and explicit handler, service, domain, and repository responsibilities.
+- Clarify Application aggregate persistence, service-owned transaction boundaries through Transactor.WithinTx, and PostgreSQL/Temporal consistency and idempotency requirements.
+- Specify staged feature approval, failing-test verification, human test review, and a passing baseline for behavior-preserving refactoring.
+- Define layer-specific testing guidance, Mockery/Testify conventions, and real PostgreSQL integration coverage for new repository tests while preserving existing repository unit tests.
+- Clarify command permissions, generated-code synchronization, verification reporting, and the definition of done.
+- Update README guidance and advance VERSION to 0.10.3; runtime behavior is unchanged.
+
+### Verification
+
+- Documentation-only update; application tests were not run. Human review remains outstanding.
+
 ## [0.10.2] - 2026-11-27
 
 Test tooling and application file organization cleanup.
