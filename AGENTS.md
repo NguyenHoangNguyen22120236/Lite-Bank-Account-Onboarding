@@ -115,6 +115,19 @@ Do not silently invent or change requirements.
 
 ## 4. Temporal Principles
 
+PR 08 target architecture (documentation only; implementation is staged):
+
+- StartApplication persists the application and durable startup intent, then starts Temporal after commit. Workflow ID equals application_id.
+- AcceptTerms and SubmitIdentity persist business data, status, and durable Signal intent atomically through service-owned Transactor.WithinTx, then signal after commit.
+- Use a transactional outbox and Main BE-owned recovery for startup and Signal delivery. Delivery state is separate from business status; never depend only on client retries.
+- Treat delivery as at least once. Use stable event identities and tolerate early, duplicate, delayed, and reordered Signals.
+- Use Temporal Updates for human review. Serialize competing decisions and complete successfully only after Main BE persists the audit, request result, and business transition.
+- Main BE remains authoritative for domain validation and application transactions; workflows orchestrate, Activities perform external I/O through service APIs.
+- Both automated clearance and human approval pass through APPROVED before account creation.
+- FAILED_TECHNICAL is terminal. Retry and reconcile uncertain side effects before terminal classification; do not automatically restart terminal applications.
+- Use durable customer-action expiration timers and Main BE deadline checks. The target EXPIRED status needs a later approved additive protobuf/schema change; it does not exist today.
+- Define replay compatibility and legacy execution/data migration before deploying a changed workflow. Workflow IDs alone do not provide permanent deduplication after history retention.
+
 - Workflow code must remain deterministic.
 - External I/O belongs in Activities.
 - Keep Temporal client implementations separate from business services through consumer-owned interfaces.
@@ -153,6 +166,10 @@ Do not implement an entire feature in one step unless explicitly authorized.
 Do not automatically start another feature.
 
 For behavior-preserving refactoring, establish a passing test baseline and keep existing tests green.
+
+For documentation-only changes, propose the file scope and decisions, obtain approval,
+edit only approved documents, and validate consistency and diagrams. Do not change
+implementation/tests or manufacture failing behavior tests for a prose-only PR.
 
 ## 6. Test-Driven Development
 

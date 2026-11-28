@@ -1,130 +1,152 @@
-# Account Opening — Happy-Case Sequence
+# Onboarding sequences
 
-The Mermaid diagram below transcribes the principal interactions visible in the supplied **Full Creating Account Process (Happy Case)** sequence diagram. It focuses on the happy path; failure handling is documented separately in docs/AI/retry-policy.md
+PR 08 target only. Signal, Update, internal read, and result message names are
+design names, not new protobuf declarations. Current workflow code only waits
+indefinitely. See architecture.md and retry-policy.md for ownership and recovery.
 
-PR 06 starts Temporal after PR 05's atomic identity/pending-start commit. Exact
-identity retries at pending-start attempt the same workflow ID again; other
-progressed states return unchanged. Accepted startup conditionally advances to
-`PENDING_IDENTITY_VERIFICATION`. Startup failure never rolls back identity.
-The local worker runs only a deterministic durable wait with no activities.
-The business activity interactions below remain future behavior. Detailed startup
-errors and completed-execution reconciliation are in `retry-policy.md`.
+## Creation and customer actions
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor Customer
-    participant MainBE as Main BE
+    participant Main as Main BE
     participant DB as PostgreSQL
-    participant Temporal as Temporal Service
-    participant Worker as Temporal Worker (Workflow / Activities)
-    participant ThirdParty as Third-party API
-    participant Account as Account Service
-    participant SendGrid as SendGrid
-
-    Customer->>MainBE: StartApplication()
-    MainBE->>DB: Insert application (PENDING_TERMS_ACCEPTANCE)
-    DB-->>MainBE: Application ID
-    MainBE-->>Customer: Application ID
-
-    Customer->>MainBE: AcceptTerms(application_id, term_id)
-    MainBE->>DB: Record accepted terms and update status
-    DB-->>MainBE: Persisted
-    MainBE-->>Customer: Terms accepted
-
-    Customer->>MainBE: SubmitIdentity(application_id, identity)
-    MainBE->>DB: Save identity and update application status
-    DB-->>MainBE: Persisted
-    MainBE->>Temporal: Start onboarding workflow (application_id)
-    Temporal-->>MainBE: Workflow accepted
-    MainBE-->>Customer: Application submitted / pending verification
-
-    Temporal-->>Worker: Dispatch workflow task
-    Worker->>ThirdParty: Verify identity
-    ThirdParty-->>Worker: Verified
-    Worker->>MainBE: Record identity-verification result / status
-    MainBE->>DB: Persist application state
-    DB-->>MainBE: Saved
-
-    Worker->>ThirdParty: Screen sanctions
-    ThirdParty-->>Worker: Clear
-    Worker->>MainBE: Record sanctions result / status
-    MainBE->>DB: Persist application state
-    DB-->>MainBE: Saved
-
-    Worker->>Account: Create account (application_id, idempotent)
-    Account->>DB: Atomic insert with unique application_id
-    DB-->>Account: Account record / existing record
-    Account-->>Worker: Account created (account number)
-    Worker->>MainBE: Record completed application / account result
-    MainBE->>DB: Persist completion
-    DB-->>MainBE: Saved
-
-    Worker->>SendGrid: Send completion notification
-    SendGrid-->>Worker: Notification accepted
-    Worker-->>Temporal: Workflow completed
+    participant T as Temporal
+    participant W as Workflow
+    Customer->>Main: StartApplication(request_id)
+    Main->>DB: WithinTx: application pending terms and start intent
+    DB-->>Main: Commit
+    Main->>T: Ensure started (Workflow ID = application_id)
+    T-->>Main: Accepted or existing
+    Main-->>Customer: Application ID and persisted status
+    T->>W: Execute workflow task
+    Note over W: Register handlers; durable wait for terms/deadline
+    Customer->>Main: AcceptTerms(application_id, term_id)
+    Main->>DB: WithinTx: lock, domain decision, acceptance, status, Signal intent
+    DB-->>Main: Commit
+    Main->>T: TermsAccepted(stable event ID, committed reference)
+    Main-->>Customer: accepted = true
+    T->>W: Deliver Signal
+    Note over W: Durable wait for identity/deadline
+    Customer->>Main: SubmitIdentity(application_id, identity)
+    Main->>DB: WithinTx: lock, validate, identity, pending verification, Signal intent
+    DB-->>Main: Commit
+    Main->>T: IdentitySubmitted(stable event ID, committed reference)
+    Main-->>Customer: Application ID and persisted status
+    T->>W: Deliver Signal
+    Note over W: Process only after both committed actions are established
 ```
 
-## Sanctions Match Requires Human Review
+Responses depend on committed business data and intent, not immediate delivery.
+Outages leave intents pending. Temporal can accept startup/Signals while workers
+are offline. Early/reordered Signals are retained and guarded; duplicates cannot
+repeat business transitions. All external calls are outside database transactions.
 
-This diagram transcribes the human-review sequence in the supplied image. Message names are descriptive, not new API contracts. Small labels in the image are not fully legible. The pending-review state is written descriptively below rather than assigning an unconfirmed status enum.
+## Automated processing
 
 ```mermaid
 sequenceDiagram
-    autonumber
-    actor Banker
-    participant MainBE as Main BE
-    participant DB as PostgreSQL
-    participant Temporal as Temporal Service
-    participant Workflow as Workflow Worker
-    participant Activity as Activity Worker
+    participant W as Workflow
+    participant A as Activities
+    participant Main as Main BE
+    participant Third as Third-party Service
     participant Account as Account Service
-
-    Note over Workflow: Sanctions result is not clear
-    Workflow->>Temporal: Schedule activity to record pending human review
-    Activity->>Temporal: Poll activity task and execute
-    Activity->>MainBE: Record pending human review
-    MainBE->>DB: Persist pending human review
-    DB-->>MainBE: Saved
-    MainBE-->>Activity: Recorded
-    Activity-->>Temporal: Activity completed
-    Workflow->>Temporal: Poll workflow task and execute
-    Note over Temporal,Workflow: Wait durably for banker decision
-    Note over Workflow: No active worker task while waiting
-
-    Banker->>MainBE: Review application pending human review
-    MainBE-->>Banker: Application details for review
-    Banker->>MainBE: Submit review decision
-    MainBE->>Temporal: Update workflow with review decision
-    Workflow->>Temporal: Poll workflow task for update
-    Workflow->>Workflow: Validate pending-review state
-    Workflow->>Workflow: Accept decision once atomically
-    Workflow-->>Temporal: Update accepted and completed
-    Temporal-->>MainBE: Decision accepted
-    MainBE-->>Banker: Review recorded for processing
-
-    alt Approved
-        Workflow->>Temporal: Schedule approval activity
-        Activity->>Temporal: Poll activity task and execute
-        Activity->>MainBE: Record approval
-        MainBE->>DB: Persist approved state
-        DB-->>MainBE: Saved
-        MainBE-->>Activity: Approval recorded
-        Activity-->>Temporal: Activity completed
-        Workflow->>Temporal: Poll workflow task and execute
-        Workflow->>Workflow: Continue account-opening process
-        Note over Workflow,Account: Resume account creation and notification from the happy-case sequence
-    else Rejected
-        Workflow->>Temporal: Schedule rejection activity
-        Activity->>Temporal: Poll activity task and execute
-        Activity->>MainBE: Record rejection
-        MainBE->>DB: Persist rejected state
-        DB-->>MainBE: Saved
-        MainBE-->>Activity: Rejection recorded
-        Activity-->>Temporal: Activity completed
-        Workflow->>Temporal: Poll workflow task and execute
-        Note over Workflow: Continue rejection notification and workflow completion
+    participant Notify as Notification provider
+    W->>A: Load committed application and identity
+    A->>Main: Read application data (future contract)
+    Main-->>A: Persisted data
+    W->>A: Verify identity
+    A->>Third: VerifyIdentity
+    Third-->>A: verified
+    alt Identity mismatch
+        W->>A: Persist rejection
+        A->>Main: Domain-validated conditional rejection
+    else Verified
+        W->>A: Persist pending sanctions
+        A->>Main: Conditional transition
+        W->>A: Screen sanctions
+        A->>Third: ScreenSanctions
+        Third-->>A: clear
+        alt Clear
+            W->>A: Persist APPROVED
+            A->>Main: Conditional approval
+        else Match
+            W->>A: Persist PENDING_HUMAN_REVIEW
+            A->>Main: Conditional transition
+            Note over W: Continue through human review sequence
+        end
     end
+    opt Approved by automation or human review
+        W->>A: Persist PENDING_ACCOUNT_CREATION
+        A->>Main: Conditional transition
+        W->>A: Create account
+        A->>Account: CreateAccount(application_id)
+        Account-->>A: Same account on retry
+        W->>A: Persist completion and account association (future capability)
+        A->>Main: Commit COMPLETED
+    end
+    W->>A: Notify persisted completion or rejection
+    A->>Notify: Stable notification identity
+    Note over W: Close after required persistence and bounded notification handling
 ```
 
-Application-state writes are shown through Main BE to preserve its database ownership. The source image abbreviates these as Activity Worker database writes. Review validation and acceptance must be serialized so concurrent decisions cannot both take effect.
+Each Main BE write uses a use-case service, domain transition, and service-owned
+transaction. Workers never write application tables. Business rejection cannot
+fall through into account creation. Technical failures interrupt this happy path.
+
+## Human review Update
+
+```mermaid
+sequenceDiagram
+    actor Banker
+    participant Main as Main BE
+    participant T as Temporal
+    participant W as Workflow
+    participant A as Review persistence Activity
+    participant DB as PostgreSQL
+    Banker->>Main: ReviewApplication(review_request_id, decision, reason)
+    Main->>Main: Authenticate, authorize, validate request
+    Main->>T: Update with stable review request ID
+    T->>W: Execute Update handler
+    W->>W: Check phase; reserve one decision before yielding
+    W->>A: Persist accepted review
+    A->>Main: Record review with authenticated reviewer context
+    Main->>DB: WithinTx: lock, domain decision, audit, request result, status
+    DB-->>Main: Commit
+    Main-->>A: Durable result
+    A-->>W: Persisted
+    W-->>T: Update completed with durable decision result
+    T-->>Main: Accepted decision and resulting status
+    Main-->>Banker: ReviewApplicationResponse
+    Note over W: Approval continues account creation; rejection continues notification
+```
+
+Only APPROVED/REJECTED are final choices. Competing decisions conflict; exact
+request replay returns its durable result. Timeout after acceptance is uncertain:
+retry the same ID/payload. Workflow guards arbitrate; Main BE locking/domain rules
+and constraints enforce persistence safety. Reviewer propagation/internal audit
+contracts remain future work. Required handlers finish before workflow closure.
+
+## Delivery recovery and expiration
+
+```mermaid
+sequenceDiagram
+    participant Main as Main BE
+    participant DB as PostgreSQL
+    participant R as Delivery recovery
+    participant T as Temporal
+    Main->>DB: Commit business data and delivery intent
+    Note over Main: Crash before delivery or response lost after acceptance
+    R->>DB: Claim pending intent with bounded lease
+    DB-->>R: Stable intent and application reference
+    R->>T: Establish startup; deliver dependent Signal
+    T-->>R: Accepted or reconciled duplicate
+    R->>DB: Acknowledge delivery
+    Note over R,T: Crash before acknowledgment causes safe duplicate delivery
+```
+
+Acknowledgment means Temporal acceptance, not processing. Expiration uses a durable
+timer followed by a Main BE transaction: lock, recheck deadline/action, then persist
+EXPIRED or return the committed action so orchestration continues. Startup delay
+does not reset deadlines. No worker task remains active while waiting.

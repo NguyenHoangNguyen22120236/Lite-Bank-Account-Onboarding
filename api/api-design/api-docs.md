@@ -1,3 +1,20 @@
+# API behavior and PR 08 target
+
+Protobuf files in api/proto/onboarding/v1 are authoritative. The field sketches
+below summarize their contracts. PR 08 changes documentation only. Current
+StartApplication only persists; AcceptTerms has no Signal; SubmitIdentity starts
+Temporal after identity/pending-start commit. The worker only waits. Review,
+GetApplication, UpdateApplicationStatus, sanctions screening, and account processing
+remain unimplemented.
+
+Target customer-action transactions atomically commit business data and outbox
+intent through service-owned Transactor.WithinTx, then attempt delivery. Success
+means durable data/intent, not Temporal processing. Recovery continues independently
+of the HTTP request. No external call occurs inside a database transaction. Exact
+business replay does not rewrite data; recovery can redeliver the original intent.
+The existing three-second startup budget belongs to the current SubmitIdentity
+adapter, not an approved target delivery policy.
+
 ## **Service:** ApplicationService — Main BE
 
 ### API 1 — StartApplication
@@ -25,7 +42,10 @@ A new request persists an application in `APPLICATION_STATUS_PENDING_TERMS_ACCEP
 Reusing `request_id` returns the existing application ID and current status without
 overwriting persisted data. Invalid request IDs return `InvalidArgument`; context
 cancellation and deadlines return `Canceled` and `DeadlineExceeded`. Other failures
-return `Internal`. StartApplication does not start a Temporal workflow.
+return sanitized `Internal`. Target: commit startup intent with the application,
+then attempt Start with application_id as Workflow ID after commit. Startup does
+not advance business status. Delivery recovery continues without customer retries.
+Terminal applications never start another execution.
 
 ### API 2 — AcceptTerms
 
@@ -58,25 +78,21 @@ A different recorded term returns `AlreadyExists`; an invalid transition or
 an acceptance already present in the initial state returns `FailedPrecondition`.
 Invalid input returns `InvalidArgument`, an absent application returns `NotFound`,
 and database failures return sanitized `Internal` errors. Cancellation and
-deadlines return `Canceled` and `DeadlineExceeded`. No Temporal workflow starts.
+deadlines return `Canceled` and `DeadlineExceeded` when observed by the request;
+errors after commit do not imply rollback. Target: acceptance, status, and stable
+TermsAccepted intent commit together, then Main BE signals the existing workflow.
+accepted=true means durable acceptance, not Signal processing. Delivery recovery
+establishes missing startup; AcceptTerms does not start a workflow itself.
 
 ### API 3 — SubmitIdentity
 
 **Purpose**: Validate and persist customer identity details for asynchronous account opening.
 
-PR 06 starts Temporal after identity and `PENDING_WORKFLOW_START` commit. New or
-already-running startup conditionally advances to `PENDING_IDENTITY_VERIFICATION`.
-Exact retries while pending-start use the same persisted workflow ID. At other
-progressed statuses, replay remains read-only and returns the current status.
-Startup uses a three-second total budget without an application retry loop.
-Uncertain failures retain identity and pending-start for a safe client retry;
-they return `Unavailable`, `DeadlineExceeded`, or `Canceled`. Configuration and
-database failures return sanitized `Internal`. Confirmed unsuccessful workflow
-closure conditionally records `FAILED_TECHNICAL` and returns `FailedPrecondition`.
-Already-completed workflows require reconciliation with persisted application
-state: `COMPLETED`/`REJECTED` return unchanged; other states return
-`FailedPrecondition` without advancing them. Concurrently progressed statuses
-are never overwritten. Workflow completion does not mean identity verification.
+Target behavior replaces current PR 06 startup: SubmitIdentity does not start
+Temporal. It commits identity, PENDING_IDENTITY_VERIFICATION, and stable
+IdentitySubmitted intent, then signals the already-started workflow. Successful
+responses report persisted status, not verification completion. Failed or uncertain
+delivery preserves data and intent for background recovery.
 
 `application_id` must be a non-nil UUID and `identity` must be present. ID number
 must contain exactly 12 ASCII digits, full name must be nonblank, and phone must
@@ -87,11 +103,11 @@ using UTC calendar dates. February 29 birthdays reach the next age on March 1 in
 non-leap years. No additional phone or email format validation is imposed.
 
 Identity insertion and the transition from `PENDING_IDENTITY_SUBMISSION` to
-`PENDING_WORKFLOW_START` commit atomically under an application-row lock. Submitted
+`PENDING_IDENTITY_VERIFICATION`, together with Signal intent, commit atomically
+under an application-row lock in the target. Submitted
 values are preserved exactly, including whitespace, case, and absent versus present
-empty email. Replaying the exact stored identity leaves identity unchanged and,
-except for pending-start startup reconciliation, returns the persisted current
-application status without writes, even if the ID has since
+empty email. Replaying the exact stored identity leaves identity unchanged and
+returns the persisted current application status without business writes, even if the ID has since
 expired. Structural validation still applies; current age/expiry checks apply only
 to first submissions. Changing any identity field, including expiry or email
 presence, conflicts. This API does not edit an already submitted identity.
@@ -177,7 +193,7 @@ results or change application state.
 
 The intended internal protocol is **gRPC over HTTP/2**, served by the existing
 generated ConnectRPC handler. Locally, port `8081` accepts unencrypted HTTP/2
-(h2c); HTTP/1 remains available for `/health`. No separate REST endpoint or native
+(h2c); the current server enables only unencrypted HTTP/2, including `/health`. No separate REST endpoint or native
 gRPC handler is introduced. Generated Go clients select gRPC with
 `connect.WithGRPC()` and use an HTTP/2-capable transport.
 
@@ -198,7 +214,7 @@ The mock contains seven synthetic government records:
 | `000000000004` | `Mock Citizen Four` | `2000-09-10` | `2043-09-10` |
 | `000000000005` | `Mock Citizen Five` | `1988-12-25` | `2044-12-25` |
 | `000000000006` | `Mock Citizen Six` | `1992-02-29` | `2044-02-29` |
-| `079123456789` | `Nguyenfsdfsdfsdfsdf Van A` | `2000-05-15` | `2032-05-15` |
+| `079123456789` | `Nguyen Van A` | `2000-05-15` | `2032-05-15` |
 
 All four fields must match exactly. Unknown IDs or mismatches return RPC success
 with `verified=false`, a business verification failure. No trimming or case
@@ -261,7 +277,7 @@ Corresponding requests for the other six records (send each object separately):
 ```
 
 ```json
-{"identity":{"idNumber":"079123456789","fullName":"Nguyenfsdfsdfsdfsdf Van A","dateOfBirth":"2000-05-15","idExpiryDate":"2032-05-15","phoneNumber":"0901234567","email":"example@email.com"}}
+{"identity":{"idNumber":"079123456789","fullName":"Nguyen Van A","dateOfBirth":"2000-05-15","idExpiryDate":"2032-05-15","phoneNumber":"0901234567","email":"example@email.com"}}
 ```
 
 ### API 5 — ScreenSanctions
@@ -309,17 +325,16 @@ message CreateAccountResponse {
 
 ### API 7 — ReviewApplication
 
-**Purpose**: Approve or Reject an application in PENDING_REVIEW.
+**Purpose**: Approve or reject an application in PENDING_HUMAN_REVIEW through a Temporal Update (target).
 
 #### Request
 
 ```protobuf
 ReviewApplicationRequest {
     application_id: string
-    decision: ReviewDecision
+    decision: HumanReviewDecision
     optional reason: string
     review_request_id: string
-    reviewer_id: string
 }
 ```
 
@@ -329,6 +344,7 @@ ReviewApplicationRequest {
 ReviewApplicationResponse {
     application_id: string
     decision_accepted: bool
+    status: ApplicationStatus
 }
 ```
 
@@ -380,3 +396,53 @@ message UpdateApplicationStatusResponse {
   ApplicationStatus status = 2;
 }
 ```
+
+
+## Review completion semantics (target)
+
+Main BE authenticates/authorizes the banker; reviewer_id is not a request field.
+Only APPROVED/REJECTED are final decisions. Submit an Update with review_request_id
+as stable identity. The workflow reserves one decision before yielding; a Main BE
+transaction validates and persists audit, request result, and application transition
+before the Update completes successfully. Exact replay returns its durable result;
+changed payload or a competing decision conflicts. Timeout after acceptance is
+uncertain: retry the same ID/payload. decision_accepted does not mean account
+creation completed. Response status is the persisted decision result, which may
+have progressed by a later GetApplication. Reviewer propagation, audit API, and
+exact review RPC error mapping remain implementation decisions.
+
+## Target lifecycle and contract gaps
+
+Both automated clearance and human approval enter APPROVED, then
+PENDING_ACCOUNT_CREATION, then COMPLETED after an account is established.
+REJECTED records IDENTITY_VERIFICATION or HUMAN_REVIEW as appropriate.
+FAILED_TECHNICAL is terminal, not resumable by ordinary retry. Proposed EXPIRED
+is a separate terminal customer-inactivity outcome, absent from current protobuf.
+Keep existing enum numbers, including legacy PENDING_WORKFLOW_START.
+
+Target training deadlines are seven days from creation for terms and seven days
+from persisted acceptance for identity. Main BE enforces them under the parent
+lock; new actions at/after deadline return FailedPrecondition. Exact replay of a
+committed action remains valid. Expiration Activities recheck committed data so
+late Signals cannot expire timely actions. Human review does not auto-expire.
+These rules and EXPIRED require later implementation/contract/schema approval.
+
+GetApplication is the persisted business-status view, not Temporal execution or
+delivery status. Its fields cannot supply identity, terms, or timestamps needed
+by Activities. No owned-data read API exists yet. UpdateApplicationStatus cannot
+persist account association, review audit, or detailed processing results.
+
+UpdateApplicationStatus is intended for authorized Activities. Main BE still owns
+domain validation and transactions: expected_status does not authorize arbitrary
+transitions. Exact replay returns the established result; delayed writes cannot
+regress newer state. Detailed replay identities/errors need implementation design.
+
+CreateAccount only receives application_id: authorized identity lookup and
+user/customer write ownership remain unresolved. Do not invent fields or permit
+cross-service table reads. Account replay must return the same account; uncertain
+side effects must be reconciled before technical failure classification.
+
+Internal TermsAccepted/IdentitySubmitted messages carry application ID, stable
+event ID, type/version, and committed reference. They are distinct from public
+RPCs; exact payload/read/result schemas remain future work. Notification outcome
+tracking and permanent review-request replay storage also require design.
