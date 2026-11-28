@@ -14,8 +14,6 @@ import (
 type SubmitIdentityRepository interface {
 	GetByIDForUpdate(context.Context, uuid.UUID) (domain.Application, error)
 	AdvanceAfterIdentity(context.Context, domain.Identity) (domain.Application, error)
-	GetByID(context.Context, uuid.UUID) (domain.Application, error)
-	ResolveWorkflowStart(context.Context, uuid.UUID, domain.ApplicationStatus, time.Time) (domain.Application, error)
 	GetIdentity(context.Context, uuid.UUID) (*domain.Identity, error)
 	InsertIdentity(context.Context, domain.Identity) error
 }
@@ -23,11 +21,10 @@ type SubmitIdentityRepository interface {
 type SubmitIdentityService struct {
 	transactor Transactor
 	repository SubmitIdentityRepository
-	starter    WorkflowStarter
 }
 
-func NewSubmitIdentityService(transactor Transactor, repository SubmitIdentityRepository, starter WorkflowStarter) *SubmitIdentityService {
-	return &SubmitIdentityService{transactor: transactor, repository: repository, starter: starter}
+func NewSubmitIdentityService(transactor Transactor, repository SubmitIdentityRepository) *SubmitIdentityService {
+	return &SubmitIdentityService{transactor: transactor, repository: repository}
 }
 
 func (s *SubmitIdentityService) SubmitIdentity(ctx context.Context, applicationID string, input *domain.Identity) (domain.Application, error) {
@@ -71,5 +68,5 @@ func (s *SubmitIdentityService) SubmitIdentity(ctx context.Context, applicationI
 	if err != nil {
 		return domain.Application{}, fmt.Errorf("submit identity: %w", err)
 	}
-	return s.startWorkflow(ctx, app)
+	return app, nil
 }

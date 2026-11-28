@@ -1,6 +1,8 @@
 # Onboarding sequences
 
-PR 08 target only. Signal, Update, internal read, and result message names are
+Future orchestration target corrected in PR 09 to direct SDK communication.
+Only startup is implemented in PR 09; Signals, Updates, Activities, and expiry
+remain staged. Signal, Update, internal read, and result message names are
 design names, not new protobuf declarations. Current workflow code only waits
 indefinitely. See architecture.md and retry-policy.md for ownership and recovery.
 
@@ -15,22 +17,24 @@ sequenceDiagram
     participant T as Temporal
     participant W as Workflow
     Customer->>Main: StartApplication(request_id)
-    Main->>DB: WithinTx: application pending terms and start intent
+    Main->>DB: Insert application pending terms (autocommit)
     DB-->>Main: Commit
     Main->>T: Ensure started (Workflow ID = application_id)
     T-->>Main: Accepted or existing
+    Main->>DB: Read current persisted application
+    DB-->>Main: Current business status
     Main-->>Customer: Application ID and persisted status
     T->>W: Execute workflow task
     Note over W: Register handlers; durable wait for terms/deadline
     Customer->>Main: AcceptTerms(application_id, term_id)
-    Main->>DB: WithinTx: lock, domain decision, acceptance, status, Signal intent
+    Main->>DB: WithinTx: lock, domain decision, acceptance, status
     DB-->>Main: Commit
     Main->>T: TermsAccepted(stable event ID, committed reference)
     Main-->>Customer: accepted = true
     T->>W: Deliver Signal
     Note over W: Durable wait for identity/deadline
     Customer->>Main: SubmitIdentity(application_id, identity)
-    Main->>DB: WithinTx: lock, validate, identity, pending verification, Signal intent
+    Main->>DB: WithinTx: lock, validate, identity, pending verification
     DB-->>Main: Commit
     Main->>T: IdentitySubmitted(stable event ID, committed reference)
     Main-->>Customer: Application ID and persisted status
@@ -38,10 +42,11 @@ sequenceDiagram
     Note over W: Process only after both committed actions are established
 ```
 
-Responses depend on committed business data and intent, not immediate delivery.
-Outages leave intents pending. Temporal can accept startup/Signals while workers
-are offline. Early/reordered Signals are retained and guarded; duplicates cannot
-repeat business transitions. All external calls are outside database transactions.
+StartApplication succeeds after Temporal accepts or confirms an existing running
+execution and Main BE refreshes persisted state. Startup never changes business
+status. Terms/identity Signal arrows describe future direct calls, not PR 09.
+There is no durable delivery intent or automatic recovery process. Temporal
+acceptance is not workflow processing. External calls remain outside transactions.
 
 ## Automated processing
 
@@ -128,25 +133,36 @@ retry the same ID/payload. Workflow guards arbitrate; Main BE locking/domain rul
 and constraints enforce persistence safety. Reviewer propagation/internal audit
 contracts remain future work. Required handlers finish before workflow closure.
 
-## Delivery recovery and expiration
+## Startup retry and future expiration
 
 ```mermaid
 sequenceDiagram
+    actor Customer
     participant Main as Main BE
     participant DB as PostgreSQL
-    participant R as Delivery recovery
     participant T as Temporal
-    Main->>DB: Commit business data and delivery intent
-    Note over Main: Crash before delivery or response lost after acceptance
-    R->>DB: Claim pending intent with bounded lease
-    DB-->>R: Stable intent and application reference
-    R->>T: Establish startup; deliver dependent Signal
-    T-->>R: Accepted or reconciled duplicate
-    R->>DB: Acknowledge delivery
-    Note over R,T: Crash before acknowledgment causes safe duplicate delivery
+    Customer->>Main: StartApplication(request_id)
+    Main->>DB: Insert application pending terms
+    DB-->>Main: Committed
+    Note over Main,T: Crash before start or acknowledgment lost
+    Main-->>Customer: Error or no response; commit may have succeeded
+    Customer->>Main: Retry same request_id
+    Main->>DB: Duplicate insert; read existing application
+    DB-->>Main: Same application_id and current status
+    alt Application terminal
+        Main-->>Customer: Persisted result; no Temporal call
+    else Application nonterminal
+        Main->>T: EnsureStarted with same application_id
+        T-->>Main: Started, running, or closed outcome
+        Main->>DB: Read current persisted application
+        Main-->>Customer: Current status or reconciliation error
+    end
 ```
 
-Acknowledgment means Temporal acceptance, not processing. Expiration uses a durable
-timer followed by a Main BE transaction: lock, recheck deadline/action, then persist
-EXPIRED or return the committed action so orchestration continues. Startup delay
-does not reset deadlines. No worker task remains active while waiting.
+Without retry, the commit-to-start gap can remain indefinitely. Retained closed
+executions are not recreated; startup never writes business status. Nonterminal
+history loss needs operational reconciliation.
+
+Future expiration uses a durable timer then a Main BE transaction: lock, recheck
+deadline/action, and persist EXPIRED or return the committed action. Startup delay
+does not reset deadlines. PR 09 introduces no timers or new enums.

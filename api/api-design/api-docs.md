@@ -1,19 +1,18 @@
-# API behavior and PR 08 target
+# API behavior and approved direct Temporal architecture
 
-Protobuf files in api/proto/onboarding/v1 are authoritative. The field sketches
-below summarize their contracts. PR 08 changes documentation only. Current
-StartApplication only persists; AcceptTerms has no Signal; SubmitIdentity starts
-Temporal after identity/pending-start commit. The worker only waits. Review,
-GetApplication, UpdateApplicationStatus, sanctions screening, and account processing
-remain unimplemented.
+Protobuf files in api/proto/onboarding/v1 are authoritative. PR 09 corrects the
+PR 08 architecture to direct Main BE-to-Temporal SDK calls. StartApplication
+persists pending terms then ensures startup. AcceptTerms has no Signal;
+SubmitIdentity commits pending verification without starting or signaling Temporal.
+The minimal deterministic workflow only waits. Review, GetApplication,
+UpdateApplicationStatus, sanctions screening, and account processing remain staged.
 
-Target customer-action transactions atomically commit business data and outbox
-intent through service-owned Transactor.WithinTx, then attempt delivery. Success
-means durable data/intent, not Temporal processing. Recovery continues independently
-of the HTTP request. No external call occurs inside a database transaction. Exact
-business replay does not rewrite data; recovery can redeliver the original intent.
-The existing three-second startup budget belongs to the current SubmitIdentity
-adapter, not an approved target delivery policy.
+Customer-action data/status commit through service-owned Transactor.WithinTx.
+Temporal calls happen after commit. No outbox, dispatcher, delivery tables, or
+background recovery are introduced. Startup failures and uncertain acknowledgments
+require StartApplication retry with the same request_id. A process crash after
+commit may leave an application without a workflow until retry. Successful
+startup means Temporal acceptance, not business processing.
 
 ## **Service:** ApplicationService — Main BE
 
@@ -41,11 +40,15 @@ StartApplicationResponse {
 A new request persists an application in `APPLICATION_STATUS_PENDING_TERMS_ACCEPTANCE`.
 Reusing `request_id` returns the existing application ID and current status without
 overwriting persisted data. Invalid request IDs return `InvalidArgument`; context
-cancellation and deadlines return `Canceled` and `DeadlineExceeded`. Other failures
-return sanitized `Internal`. Target: commit startup intent with the application,
-then attempt Start with application_id as Workflow ID after commit. Startup does
-not advance business status. Delivery recovery continues without customer retries.
-Terminal applications never start another execution.
+cancellation and deadlines return `Canceled` and `DeadlineExceeded`.
+Temporal unavailability returns Unavailable; closed or inconsistent execution
+returns FailedPrecondition for operational reconciliation. Other failures return
+sanitized Internal. After commit, Main BE ensures startup with application_id as
+Workflow ID and refreshes persisted state. Startup never advances business status.
+The SDK adapter caps the request at three seconds. A timeout may follow successful
+persistence/startup; retry the same request_id. Terminal replays skip Temporal.
+Retained running duplicates reuse the execution; retained closed executions are
+not recreated. Nonterminal history loss requires operational reconciliation.
 
 ### API 2 — AcceptTerms
 
@@ -79,20 +82,19 @@ an acceptance already present in the initial state returns `FailedPrecondition`.
 Invalid input returns `InvalidArgument`, an absent application returns `NotFound`,
 and database failures return sanitized `Internal` errors. Cancellation and
 deadlines return `Canceled` and `DeadlineExceeded` when observed by the request;
-errors after commit do not imply rollback. Target: acceptance, status, and stable
-TermsAccepted intent commit together, then Main BE signals the existing workflow.
-accepted=true means durable acceptance, not Signal processing. Delivery recovery
-establishes missing startup; AcceptTerms does not start a workflow itself.
+errors after commit do not imply rollback. Future TermsAccepted signaling uses
+a direct post-commit SDK call with explicit
+idempotent retry semantics. PR 09 only persists acceptance and status; it does
+not signal or start Temporal.
 
 ### API 3 — SubmitIdentity
 
 **Purpose**: Validate and persist customer identity details for asynchronous account opening.
 
-Target behavior replaces current PR 06 startup: SubmitIdentity does not start
-Temporal. It commits identity, PENDING_IDENTITY_VERIFICATION, and stable
-IdentitySubmitted intent, then signals the already-started workflow. Successful
-responses report persisted status, not verification completion. Failed or uncertain
-delivery preserves data and intent for background recovery.
+PR 09 removes startup from SubmitIdentity. Identity and
+PENDING_IDENTITY_VERIFICATION commit atomically. Until PR 11 adds identity signaling,
+this means ready for verification, not that processing has started. Success reports
+persisted status. No Temporal startup, Signal, or background delivery occurs here.
 
 `application_id` must be a non-nil UUID and `identity` must be present. ID number
 must contain exactly 12 ASCII digits, full name must be nonblank, and phone must
@@ -103,8 +105,7 @@ using UTC calendar dates. February 29 birthdays reach the next age on March 1 in
 non-leap years. No additional phone or email format validation is imposed.
 
 Identity insertion and the transition from `PENDING_IDENTITY_SUBMISSION` to
-`PENDING_IDENTITY_VERIFICATION`, together with Signal intent, commit atomically
-under an application-row lock in the target. Submitted
+`PENDING_IDENTITY_VERIFICATION` commit atomically under an application-row lock. Submitted
 values are preserved exactly, including whitespace, case, and absent versus present
 empty email. Replaying the exact stored identity leaves identity unchanged and
 returns the persisted current application status without business writes, even if the ID has since

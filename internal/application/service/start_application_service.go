@@ -20,10 +20,11 @@ type StartApplicationRepository interface {
 
 type StartApplicationService struct {
 	repository StartApplicationRepository
+	starter    WorkflowStarter
 }
 
-func NewStartApplicationService(repository StartApplicationRepository) *StartApplicationService {
-	return &StartApplicationService{repository: repository}
+func NewStartApplicationService(repository StartApplicationRepository, starter WorkflowStarter) *StartApplicationService {
+	return &StartApplicationService{repository: repository, starter: starter}
 }
 
 func (s *StartApplicationService) StartApplication(ctx context.Context, requestID string) (domain.Application, error) {
@@ -44,7 +45,7 @@ func (s *StartApplicationService) StartApplication(ctx context.Context, requestI
 		if err != nil {
 			return domain.Application{}, fmt.Errorf("replay application: %w", err)
 		}
-		return existing, nil
+		app = existing
 	}
-	return app, nil
+	return s.startWorkflow(ctx, app)
 }

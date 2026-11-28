@@ -26,7 +26,7 @@ import (
 func acceptTermsRPC(ctx context.Context, pool *pgxpool.Pool, id, term string) *httptest.ResponseRecorder {
 	r := NewApplicationRepository(pool)
 	_, rpc := onboardingv1connect.NewApplicationServiceHandler(handler.New(
-		service.NewStartApplicationService(r), service.NewAcceptTermsService(NewTransactor(pool), r), service.NewSubmitIdentityService(NewTransactor(pool), r, nil)))
+		service.NewStartApplicationService(r, nil), service.NewAcceptTermsService(NewTransactor(pool), r), service.NewSubmitIdentityService(NewTransactor(pool), r)))
 	body, err := protojson.Marshal(&onboardingv1.AcceptTermsRequest{ApplicationId: id, TermId: term})
 	if err != nil {
 		panic(err)

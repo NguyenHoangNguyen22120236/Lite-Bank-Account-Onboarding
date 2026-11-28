@@ -2,39 +2,36 @@
 
 ## Scope and current implementation
 
-PR 08 defines the target architecture and changes documentation only. Protobuf
-files remain authoritative. Future contracts, migrations, and implementation need
-their own staged approval and TDD review.
+PR 09 corrects the PR 08 design to direct Main BE-to-Temporal SDK calls.
+Protobuf files remain authoritative. Future contracts and migrations need approval.
 
-Currently StartApplication persists pending terms. AcceptTerms commits acceptance.
-SubmitIdentity commits identity and PENDING_WORKFLOW_START, starts Temporal, then
-conditionally records pending identity verification. The worker executes only
-Await(false). Signals, Updates, business Activities, delivery recovery, and expiry
-are absent. ReviewApplication, GetApplication, and UpdateApplicationStatus return
-Unimplemented. Account is a placeholder. VerifyIdentity works against immutable
-synthetic fixtures; ScreenSanctions is unimplemented.
+StartApplication persists pending terms and then ensures startup. AcceptTerms
+commits acceptance. SubmitIdentity commits identity and pending verification
+atomically, without calling Temporal. Until PR 11 introduces identity signaling,
+pending verification means ready for processing, not that a verification task has
+started. The worker still executes only Await(false). Signals, Updates, business
+Activities, automatic delivery recovery, and expiry are absent. ReviewApplication,
+GetApplication, and UpdateApplicationStatus remain Unimplemented. Account is a
+placeholder; VerifyIdentity uses immutable synthetic fixtures.
 
 ## Target ownership
 
 | Component | Responsibility |
 |---|---|
-| Main BE | Application data, business validation, domain transitions, transactions, review audit, customer APIs, durable delivery intent |
+| Main BE | Application data, business validation, domain transitions, transactions, review audit, customer APIs, direct post-commit Temporal calls |
 | Temporal workflow | Deterministic sequencing, durable waits/timers, Signal consumption, review arbitration, Activity scheduling |
 | Activities | External I/O through service APIs; no direct application-table access |
 | Third-party Service | Identity and sanctions results; business negatives differ from technical failure |
 | Account Service | Account creation, account-number generation, account idempotency by application |
 | PostgreSQL | Shared physical database with service-owned tables; no cross-service table access |
-| Main BE delivery recovery | Deliver committed startup and Signal intents independently of customer retries |
 | Notification provider | Deliver notifications without changing account or application outcomes |
 
 ```mermaid
 flowchart LR
     Customer --> Main[Main BE]
     Banker --> Main
-    Main -->|Application aggregate and delivery intent| DB[(Local PostgreSQL)]
-    Recovery[Main BE delivery recovery] -->|Claim and acknowledge intents| DB
+    Main -->|Application aggregate| DB[(Local PostgreSQL)]
     Main -->|Post-commit Start and Signals; review Updates| T[Local Temporal Service]
-    Recovery -->|Retry Start and Signals| T
     Workers[Workflow and Activity workers] -->|Poll tasks| T
     Workers -->|Activities over internal gRPC| Main
     Workers -->|Activities over internal gRPC| Third[Third-party Service]
@@ -56,8 +53,9 @@ service interfaces. Use-case services coordinate ports. Domain entities own rule
 invariants, and transitions without I/O; pass time explicitly. Services do not
 depend on PostgreSQL drivers or Temporal SDK clients.
 
-StartApplicationService owns creation/start intent; AcceptTermsService and
-SubmitIdentityService own customer actions/Signal intents. ReviewApplicationService
+StartApplicationService owns creation and startup through WorkflowStarter;
+AcceptTermsService and SubmitIdentityService own customer actions and future
+direct post-commit Signals. ReviewApplicationService
 authenticates/authorizes and submits the Update; a review-recording use case
 persists the accepted decision. Status and expiration use cases validate domain
 decisions before writing. Each consumer defines only its required repository and
@@ -67,38 +65,54 @@ worker orchestration in internal/workflow.
 ApplicationRepository owns Application aggregate persistence, including identity
 and terms, even across multiple implementation files. Repositories own SQL,
 mapping, locking, constraints, and sanitized error classification, not business
-decisions. Delivery storage is infrastructure, not a business repository per table.
+decisions. There is no delivery store or dispatcher.
 Main BE owns review audit; its precise aggregate boundary remains to be designed.
 
-Related aggregate changes and delivery intent commit atomically through the
+Related aggregate changes commit atomically through the
 service-owned Transactor.WithinTx callback and the same transaction context.
 Parent-row locking serializes customer actions, expiration, reviews, and status
 writes. No Temporal or provider call occurs while holding that transaction.
 The infrastructure Transactor implements Begin/Commit and bounded cancellation-safe
 rollback, not orchestration or callback retries.
 
-## Startup, Signals, and delivery recovery
+## Direct startup and consistency
 
-The selected target uses a transactional outbox. StartApplication commits an
-application in PENDING_TERMS_ACCEPTANCE plus start intent, then attempts startup.
-Workflow ID always equals application_id. Startup never advances business status.
-Delivery state is separate: retain PENDING_WORKFLOW_START for contract compatibility
-and legacy data, but do not use it for newly created target applications.
+Main BE calls Temporal directly; no Transactional Outbox, dispatcher, delivery
+table, or background retry process is introduced. StartApplication inserts one
+application in PENDING_TERMS_ACCEPTANCE. PostgreSQL request_id uniqueness
+serializes concurrent inserts; duplicates resolve the existing application.
+The single insert commits without an explicit multi-operation transaction.
+Workflow ID always equals application_id.
 
-AcceptTerms commits acceptance, PENDING_IDENTITY_SUBMISSION, and TermsAccepted
-intent; SubmitIdentity commits identity, PENDING_IDENTITY_VERIFICATION, and
-IdentitySubmitted intent. Both send Signals after commit. Successful APIs mean
-durable business data and delivery intent, not completed orchestration. Cancellation
-after commit cannot undo persistence or cancel independent recovery.
+After persistence, nonterminal applications call EnsureStarted. The adapter uses
+the caller context capped at three seconds, USE_EXISTING for running conflicts,
+and REJECT_DUPLICATE for retained closed executions. There is no service retry
+loop. Startup refreshes persisted state without writing status, timestamps,
+identity, or terms. Terminal replays return persisted state without calling
+Temporal. Completed execution with incompatible business state, unsuccessful
+closure, or inconsistent IDs require reconciliation. Startup never classifies an
+application FAILED_TECHNICAL.
 
-A Main BE-owned recovery use case retries pending intents even without customer
-retries. Establish startup before dependent Signals. Immediate delivery and recovery
-share claim/acknowledgment rules. Crashes and lost responses can cause duplicates:
-use stable event IDs, immutable committed references, and workflow guards.
-Acknowledgment proves Temporal acceptance, not workflow processing. No exactly-once
-delivery or cross-system transaction is assumed. Signals do not implicitly create
-workflows. Missing executions trigger startup reconciliation; closed executions
-require investigation rather than automatic recreation.
+PostgreSQL and Temporal cannot commit atomically. Failed or uncertain persistence
+makes no intentional startup call. Retry the same request_id to resolve it.
+A crash after commit and before startup can strand the application until the
+customer retries StartApplication. Lost startup acknowledgment is uncertain:
+retry the same request_id to resolve the same application and execution.
+Cancellation after commit cannot undo persistence. There is no autonomous recovery
+or exactly-once guarantee. Workflow ID deduplication ends when retained history is
+forgotten: nonterminal history loss requires operational reconciliation before
+retry. Terminal database state blocks ordinary terminal replay.
+
+AcceptTerms commits acceptance and PENDING_IDENTITY_SUBMISSION. SubmitIdentity
+commits identity and PENDING_IDENTITY_VERIFICATION under the existing parent-row
+lock. Neither sends a Signal in PR 09. Exact identity replay preserves current
+state, including legacy PENDING_WORKFLOW_START. The enum and unused conditional
+repository operation remain compatible; no legacy rows or executions are migrated.
+
+Future customer Signals use direct post-commit SDK calls. Their response and retry
+policy must address the delivery gap before implementation. Signals must tolerate
+duplicates and reordering and must not implicitly create workflows. Updates,
+Activities, and timers below remain future work.
 
 Signal payloads carry application ID, event ID, event type/version, and committed
 record reference. Activities fetch authoritative data through Main BE APIs, which
@@ -161,5 +175,6 @@ tracking, internal read/result contracts, authenticated reviewer propagation,
 review aggregate boundary, customer identity mapping, and user/customer ownership.
 Existing placeholder executions need replay-compatible versioning and explicit
 migration/reconciliation; deployment alone does not turn Await(false) into this
-lifecycle. Retain duplicate-start policies for retained executions and use durable
-application state to prevent recreation after Temporal history retention expires.
+lifecycle. Retain duplicate-start policies for retained executions and use terminal
+application state to block terminal replay. Nonterminal history loss remains an
+operational reconciliation risk.

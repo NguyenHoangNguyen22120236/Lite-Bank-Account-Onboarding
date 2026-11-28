@@ -22,6 +22,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -187,8 +188,10 @@ func TestIntegrationStartApplication(t *testing.T) {
 	call := func(input string) *httptest.ResponseRecorder {
 		t.Helper()
 		// Fresh instances prove replay depends on PostgreSQL rather than process memory.
+		starter := NewMockWorkflowStarter(t)
+		starter.EXPECT().EnsureStarted(mock.Anything, mock.Anything, mock.Anything).Return(service.WorkflowStartEstablished, nil).Maybe()
 		_, rpc := onboardingv1connect.NewApplicationServiceHandler(handler.New(
-			service.NewStartApplicationService(r), service.NewAcceptTermsService(NewTransactor(pool), r), service.NewSubmitIdentityService(NewTransactor(pool), r, nil)))
+			service.NewStartApplicationService(r, starter), service.NewAcceptTermsService(NewTransactor(pool), r), service.NewSubmitIdentityService(NewTransactor(pool), r)))
 		body, err := protojson.Marshal(&onboardingv1.StartApplicationRequest{RequestId: input})
 		require.NoError(t, err)
 		req := httptest.NewRequest(http.MethodPost, onboardingv1connect.ApplicationServiceStartApplicationProcedure, bytes.NewReader(body)).WithContext(ctx)
@@ -196,6 +199,11 @@ func TestIntegrationStartApplication(t *testing.T) {
 		req.Header.Set("Connect-Protocol-Version", "1")
 		response := httptest.NewRecorder()
 		rpc.ServeHTTP(response, req)
+		if id, err := uuid.Parse(input); err == nil && id != uuid.Nil {
+			starter.AssertNumberOfCalls(t, "EnsureStarted", 1)
+		} else {
+			starter.AssertNumberOfCalls(t, "EnsureStarted", 0)
+		}
 		return response
 	}
 	decode := func(response *httptest.ResponseRecorder) *onboardingv1.StartApplicationResponse {

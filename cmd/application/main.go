@@ -53,9 +53,9 @@ func run() error {
 	applicationRepository := applicationpostgres.NewApplicationRepository(pool)
 	transactor := applicationpostgres.NewTransactor(pool)
 	applicationHandler := handler.New(
-		service.NewStartApplicationService(applicationRepository),
+		service.NewStartApplicationService(applicationRepository, applicationworkflow.New(temporalClient, temporalConfig.TaskQueue)),
 		service.NewAcceptTermsService(transactor, applicationRepository),
-		service.NewSubmitIdentityService(transactor, applicationRepository, applicationworkflow.New(temporalClient, temporalConfig.TaskQueue)),
+		service.NewSubmitIdentityService(transactor, applicationRepository),
 	)
 
 	path, rpcHandler :=

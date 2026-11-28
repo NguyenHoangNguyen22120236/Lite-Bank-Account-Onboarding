@@ -1,9 +1,10 @@
 # Retry, delivery, and failure policy
 
-PR 08 target only. Current SubmitIdentity startup uses a request-derived three-second
-budget, no application retry loop, and post-commit conditional status reconciliation.
-No outbox/recovery exists today. The target moves startup to StartApplication and
-replaces client-only recovery with durable delivery intents.
+PR 09 uses direct Main BE-to-Temporal SDK communication. StartApplication persists
+first, then uses the caller context capped at three seconds to ensure startup.
+There is no application retry loop, outbox, dispatcher, delivery table, or
+background recovery. Retry failed or uncertain startup with the same request_id.
+Signals, Updates, Activities, and expiration below are future work.
 
 ## Outcome rules
 
@@ -16,24 +17,22 @@ retries that repeat the lifecycle. A new customer attempt needs a new request_id
 Use bounded Activity retries with backoff and explicit timeouts. Exact intervals,
 attempt limits, total processing budgets, delivery alert thresholds, and review
 overdue thresholds remain decisions for implementation. No numeric SDK defaults
-are asserted here. A delivery attempt has a bounded deadline; durable recovery
-continues independently of the original HTTP request.
+are asserted here. Startup has a bounded deadline and remains tied to the original request.
+A committed application remains even if startup or the response fails.
 
 ## Operation-specific handling
 
 | Operation/condition | Target behavior |
 |---|---|
-| Database transaction fails | No intentional Temporal delivery; rollback related aggregate data and intent |
+| Database transaction fails | No intentional Temporal delivery; rollback related aggregate data |
 | Commit result is uncertain | Resolve by stable request/action identity; do not assume rollback or send uncommitted data |
-| Crash after commit, before delivery | Recovery claims the durable intent without requiring customer replay |
-| Start accepted, response lost | Retry same application_id; reconcile existing execution |
-| Startup pending while customer acts | Commit actions/intents normally; establish start before dependent Signals |
-| Signal accepted, acknowledgment persistence fails | Redeliver same event identity; workflow handles duplicates |
+| Crash after commit, before delivery | Application can remain without a workflow until same-request StartApplication retry |
+| Start accepted, response lost | Retry StartApplication with the same request_id; resolve the same application_id |
+| Startup pending while customer acts | PR 09 commits business actions only; retry StartApplication to establish startup |
 | Duplicate/reordered Signal | Retain facts; guard phase and prerequisites; no repeated transition |
-| Signal target missing | Reconcile start intent and durable application state; no blind SignalWithStart |
-| Workflow already closed | Compare persisted outcome; acknowledge stale intents only after reconciliation; never recreate automatically |
+| Signal target missing | Future policy must reconcile persisted state; no blind SignalWithStart |
+| Workflow already closed | Compare persisted outcome; return reconciliation error for incompatible state; never recreate retained closed executions |
 | Worker offline/restarted | Server retains accepted history; durable waits resume when compatible worker returns |
-| Concurrent recovery workers | Short claim transaction and bounded lease; no network I/O under lock; expired claims are reclaimable |
 | Review Update timeout after acceptance | Retry same review_request_id/payload; return durable result |
 | Review persistence Activity retry | Same audit/request identity; no overwrite of accepted competing review |
 | Status Activity response lost | Same transition replay returns established result; newer state is preserved |
@@ -44,12 +43,28 @@ continues independently of the original HTTP request.
 | Expiration races with action | Main BE serializes under parent lock and checks persisted action/deadline |
 | Workflow fails, times out, cancels, or terminates abnormally | Recovery reconciles persisted state/external effects; persist terminal technical failure only when safe |
 
-Delivery retries are at least once. Outbox acceptance is not evidence of workflow
-processing or business completion. Separate delivery attempts from lifecycle
-failure: a temporary Temporal outage does not immediately fail the application.
-Persistent startup/delivery faults require alerting and reconciliation; after
-classified unrecoverable failure, Main BE may atomically terminalize the application
-and retire pending intents. The exact operational cutoff remains to be selected.
+The PostgreSQL commit and Temporal start are not atomic. A failed commit produces
+no intentional start; an uncertain commit is resolved on same-request retry. A
+process crash after commit can leave the application stranded without retry.
+Temporal may accept a request whose acknowledgment is lost. Stable IDs and the
+adapter's USE_EXISTING/REJECT_DUPLICATE policies reconcile retained executions.
+
+Startup never changes application status or timestamps. Unavailable maps to
+Unavailable; canceled/deadline errors retain their RPC codes. Unknown startup
+errors map to sanitized Internal. Closed unsuccessful execution or inconsistent
+business/workflow state maps to FailedPrecondition. A completed execution is
+accepted only with persisted COMPLETED or REJECTED. Concurrent terminal state
+after an unsuccessful closure is returned unchanged. Terminal replays skip Temporal.
+
+No durable startup marker is persisted. Deduplication depends on retained Temporal
+history for nonterminal records: missing history needs operational reconciliation
+before retry. Terminal database state blocks ordinary terminal replay. A stale
+in-flight start cannot be atomic with a concurrent terminal write; PR 09 introduces
+no workflow business writer and later writers must account for this boundary.
+
+Future Signal retries must be idempotent and at least once when retried; direct
+communication does not guarantee eventual delivery. Define their API retry policy
+in the signaling PRs, without promising an unimplemented background recovery path.
 
 ## Downstream classification
 
@@ -107,8 +122,8 @@ notification is required in this training scope.
 Use table-driven domain tests for transitions, time boundaries, and terminal guards.
 Service unit tests use Mockery-generated consumer ports and Testify to verify
 commit-before-delivery, no delivery on failed commit, replay, cancellation, and
-error propagation. PostgreSQL integration tests cover atomic intent persistence,
-rollback, leases/claim concurrency, constraints, and action/expiry races.
+error propagation. PostgreSQL integration tests cover atomic business persistence, rollback,
+constraints, duplicate requests, and future action/expiry races.
 Temporal SDK tests cover early/duplicate/reordered Signals, durable timers,
 concurrent Updates, handler completion, and retry-safe Activities. Live Temporal
 integration tests cover actual message behavior, uncertain delivery, and worker

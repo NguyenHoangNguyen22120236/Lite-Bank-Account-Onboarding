@@ -4,9 +4,9 @@ PostgreSQL schema for this study project. All eight tables share one database an
 
 Columns are NOT NULL unless marked nullable. This document records requirements and proposed adjustments; it is not a migration or authorization to alter the database.
 
-## PR 08 target boundary
+## Approved architecture after PR 09
 
-PR 08 is documentation-only. The current migration and Go behavior remain unchanged.
+PR 09 corrects the PR 08 target to direct SDK communication; the schema is unchanged.
 The target starts Temporal after StartApplication persistence and sends Signals
 after terms/identity commits. Business status is separate from startup/Signal
 delivery state. Both clearance paths pass through APPROVED. FAILED_TECHNICAL is
@@ -71,56 +71,49 @@ terms; the per-term unique constraint alone does not enforce the API restriction
 
 At most one identity record per application; repeat applications by a customer are allowed.
 
-Current PR 05 SubmitIdentity locks the parent application row before reading identity or
-deciding a transition. The first valid submission inserts identity and advances
-`PENDING_IDENTITY_SUBMISSION` to `PENDING_WORKFLOW_START` in one transaction,
-using the same application-supplied UTC timestamp for identity creation and the
-application update. No schema change is required.
+SubmitIdentity locks the parent application before reading identity or deciding
+a transition. The first valid submission inserts identity and advances
+PENDING_IDENTITY_SUBMISSION directly to PENDING_IDENTITY_VERIFICATION in one
+service-owned transaction. Both writes use the same UTC timestamp. Until PR 11
+adds identity signaling, this status means identity is ready, not that processing
+has begun. SubmitIdentity never starts Temporal.
 
-At a progressed status, an exactly matching stored identity is a read-only replay
-returning the persisted application status. Equality includes every submitted
-field and distinguishes SQL NULL email from an empty email. Changed submissions
-conflict. An identity present at either pre-submission status, or a missing identity
-at a progressed status, is an invalid state and is not repaired. Current expiry
-and age checks apply only to first submissions, so later expiration does not break
-durable replay. All identity writers must follow the same parent-lock protocol.
-Current PR 06 starts Temporal after this transaction commits. Exact identity replay at
-`PENDING_WORKFLOW_START` can retry startup using the stored workflow ID. Following
-confirmed startup, a separate parent-row-locked transaction conditionally advances
-pending-start to pending identity verification (or `FAILED_TECHNICAL` for confirmed
-unsuccessful closure). It preserves every field when status has already advanced.
-Identity and its creation timestamp are never changed by startup outcomes.
+Exact stored identity replay is read-only and returns current persisted status,
+including legacy PENDING_WORKFLOW_START. Equality includes optional email presence.
+Changed submissions conflict. Missing identity after progression and identity at a
+pre-submission status are invalid and are not repaired. Current age/expiry checks
+apply only to first submission. Every writer follows the parent-lock protocol.
 
-PR 08 supersedes that target behavior: identity insertion, transition directly to
-PENDING_IDENTITY_VERIFICATION, and stable IdentitySubmitted delivery intent commit
-together. Startup belongs to StartApplication. Exact replay remains read-only for
-business data, while recovery can redeliver its original intent. The existing
-pending-start status remains for legacy compatibility; new target applications
-start at pending terms and do not use it. Legacy rows need explicit reconciliation.
+## Direct startup consistency and future expiration
 
-## Durable delivery and expiration requirements (not migrated)
+StartApplication inserts one PENDING_TERMS_ACCEPTANCE application before calling
+WorkflowStarter through the Temporal SDK adapter. Its single insert commits
+atomically without an explicit multi-operation transaction. request_id uniqueness
+serializes concurrent inserts; duplicate requests read the same application.
+temporal_workflow_id remains application_id. Startup refreshes persisted state,
+never writes business progress, and skips terminal applications.
 
-StartApplication must atomically persist application plus workflow-start intent;
-AcceptTerms and SubmitIdentity atomically persist action, status, and Signal intent.
-The use-case service owns Transactor.WithinTx. ApplicationRepository remains the
-aggregate repository for identity/terms; an infrastructure delivery store supplies
-only the operations consumed by those services and recovery. Repository code does
-not choose business outcomes or call Temporal.
+There are no startup-intent or Signal-intent rows, delivery tables, Transactional
+Outbox, or dispatcher. PostgreSQL and Temporal are not one transaction. On failed
+or uncertain startup, retry StartApplication with the same request_id. A crash
+after commit can leave the application without a workflow until retry. No automatic
+recovery is guaranteed. Retained closed executions cannot be reused; nonterminal
+records whose history has been forgotten require operational reconciliation.
+No schema change or migration is introduced.
 
-A future outbox needs stable event ID, application association, event type/version,
-minimal committed reference, delivery state, attempt/next-attempt metadata, bounded
-claim lease, and acknowledgment time. Enforce uniqueness per logical action and
-index pending/available work. Define exact columns, indexes, retention, and claim
-SQL in the future schema proposal. Claim briefly, release the transaction before
-network delivery, then acknowledge separately. Expired claims are reclaimable;
-duplicate delivery is expected. Establish start before dependent Signals.
+AcceptTerms and SubmitIdentity retain service-owned Transactor.WithinTx and
+aggregate repository ownership. Future Signals go directly to Temporal after
+commit; their retry/response semantics must address possible lost delivery.
 
-Persisted creation and terms acceptance timestamps supply customer deadlines:
-seven days to accept terms, then seven days to submit identity. Main BE locks the
-parent, checks domain deadline/action rules, and writes EXPIRED only if no timely
-action committed. New actions at/after deadline fail; exact committed replay stays
-valid. Startup/Signal delays do not reset deadlines. No human-review expiry is
-introduced. EXPIRED and any delivery tables are absent from the current migration.
+Legacy PENDING_WORKFLOW_START values and existing executions are not rewritten.
+The old ResolveWorkflowStart repository method remains unused by the services for
+compatibility with existing tests; it does not define the new startup behavior.
+
+Future creation and terms timestamps supply customer deadlines: seven days to
+accept terms, then seven days to submit identity. Main BE locks the parent and
+checks authoritative data before EXPIRED. Delays never reset deadlines; committed
+replay stays valid. EXPIRED and timers need later contract/schema approval and are
+not introduced in PR 09.
 
 ## application_reviews
 
@@ -214,14 +207,14 @@ PR 01 foreign keys explicitly use ON UPDATE NO ACTION and ON DELETE NO ACTION. A
 Architecture/sequence documents describe the PR 08 target ownership. Protobuf does
 not expose completed_at; the target persistence semantics are documented above.
 
-## PR 08 mismatch inventory and future work
+## PR 09 implementation boundary and future work
 
 | Area | Current contract/schema/code | Target or unresolved dependency |
 |---|---|---|
-| Start | StartApplicationService uses Create/GetByRequestID without Transactor or Temporal port | Atomically persist start intent; post-commit startup and background recovery |
-| Terms | Transactional acceptance/status, no signaling | Atomic Signal intent and post-commit delivery; preserve one-distinct-term rule |
-| Identity | Commits PENDING_WORKFLOW_START then invokes WorkflowStarter | Commit pending verification and Signal intent; remove startup ownership later |
-| Startup reconciliation | Advances pending-start to verification or technical failure | Must not advance new business progress; reconcile delivery separately |
+| Start | Create/GetByRequestID then WorkflowStarter after commit | Same-request retry; no autonomous recovery |
+| Terms | Transactional acceptance/status, no signaling | Future direct post-commit Signal; preserve one-distinct-term rule |
+| Identity | Commits pending verification without Temporal calls | PR 11 direct identity Signal; no startup ownership |
+| Startup reconciliation | Reads persisted state without business writes | Closed/inconsistent execution needs operational reconciliation |
 | Worker | Await(false); Activities/clients/review handler are placeholders, no Activities registered | Implement lifecycle with Signals, Updates, durable timers and Activities |
 | Status | Proto, Go and migration share existing values; no EXPIRED | Later additive enum/migration; keep existing numeric values and legacy pending-start |
 | Technical failure | Prior documents treated it as recoverable with no completed_at | Target is terminal with completed_at; no ordinary resume |
@@ -229,7 +222,7 @@ not expose completed_at; the target persistence semantics are documented above.
 | Reads | GetApplication only exposes status/account number/rejection step and is unimplemented | New internal owned-data reads needed for identity, actions, timestamps |
 | Results | UpdateApplicationStatus only carries expected/new status and rejection step | Missing review audit, account association and processing result capabilities |
 | Accounts | CreateAccount accepts only application_id; service/repository/migrations absent | Resolve owned-data lookup and user/customer creation without cross-table access |
-| Delivery | No outbox, claim metadata or recovery process | New schema/ports/recovery and operations policy needed |
+| Delivery | Direct SDK calls; no delivery store or recovery process | Future Signal retry semantics must address the post-commit gap |
 | Ownership | Shared database; only three application tables migrated | Account/customer mapping and future cross-service FK behavior still require design |
 | Existing executions | Indefinite placeholder workflows and legacy pending-start rows | Explicit replay-compatible migration/reconciliation before new worker rollout |
 

@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protojson"
 )
@@ -28,16 +29,11 @@ func identityPayload() *onboardingv1.IdentityInfo {
 }
 
 // Fresh layers exercise the generated Connect route without an HTTP listener.
-type acceptedWorkflowStarter struct{}
-
-func (acceptedWorkflowStarter) EnsureStarted(context.Context, string, string) (service.WorkflowStartOutcome, error) {
-	return service.WorkflowStartEstablished, nil
-}
-
-func submitIdentityRPC(ctx context.Context, db integrationDB, id string, identity *onboardingv1.IdentityInfo) *httptest.ResponseRecorder {
+func submitIdentityRPC(t *testing.T, ctx context.Context, db ApplicationDB, txDB TransactorDB, id string, identity *onboardingv1.IdentityInfo) *httptest.ResponseRecorder {
+	t.Helper()
 	r := NewApplicationRepository(db)
 	_, rpc := onboardingv1connect.NewApplicationServiceHandler(handler.New(
-		service.NewStartApplicationService(r), service.NewAcceptTermsService(NewTransactor(db), r), service.NewSubmitIdentityService(NewTransactor(db), r, acceptedWorkflowStarter{})))
+		service.NewStartApplicationService(r, nil), service.NewAcceptTermsService(NewTransactor(txDB), r), service.NewSubmitIdentityService(NewTransactor(txDB), r)))
 	body, err := protojson.Marshal(&onboardingv1.SubmitIdentityRequest{ApplicationId: id, Identity: identity})
 	if err != nil {
 		panic(err)
@@ -122,7 +118,7 @@ func TestIntegrationSubmitIdentityPersistenceAndReplay(t *testing.T) {
 			}
 			terms := readTerms(t, ctx, pool, app.ApplicationID)
 			before := time.Now().UTC().Truncate(time.Microsecond)
-			assertIdentityRPC(t, submitIdentityRPC(ctx, pool, app.ApplicationID.String(), input), app.ApplicationID, domain.ApplicationStatusPendingIdentityVerification, "")
+			assertIdentityRPC(t, submitIdentityRPC(t, ctx, pool, pool, app.ApplicationID.String(), input), app.ApplicationID, domain.ApplicationStatusPendingIdentityVerification, "")
 			stored := readIdentity(t, ctx, pool, app.ApplicationID)
 			require.NotNil(t, stored, "identity missing after success")
 			want := &identitySnapshot{ID: input.IdNumber, Name: input.FullName, Birth: input.DateOfBirth, Expiry: input.IdExpiryDate, Phone: input.PhoneNumber, Email: input.Email, CreatedAt: stored.CreatedAt}
@@ -136,7 +132,7 @@ func TestIntegrationSubmitIdentityPersistenceAndReplay(t *testing.T) {
 			require.False(t, got.UpdatedAt.After(time.Now()), "startup transition timestamp outside submission interval")
 			app.UpdatedAt = got.UpdatedAt
 			assertApplication(t, got, app)
-			assertIdentityRPC(t, submitIdentityRPC(ctx, pool, app.ApplicationID.String(), input), app.ApplicationID, app.Status, "")
+			assertIdentityRPC(t, submitIdentityRPC(t, ctx, pool, pool, app.ApplicationID.String(), input), app.ApplicationID, app.Status, "")
 			require.Equal(t, stored, readIdentity(t, ctx, pool, app.ApplicationID), "replay modified identity")
 			got, err = NewApplicationRepository(pool).GetByID(ctx, app.ApplicationID)
 			require.NoError(t, err)
@@ -149,7 +145,7 @@ func TestIntegrationSubmitIdentityPersistenceAndReplay(t *testing.T) {
 			_, progressErr := pool.Exec(ctx, "UPDATE applications SET status=$2 WHERE application_id=$1", app.ApplicationID, string(domain.ApplicationStatusCompleted))
 			require.True(t, progressErr == nil, "seed progressed status failed")
 			app.Status = domain.ApplicationStatusCompleted
-			assertIdentityRPC(t, submitIdentityRPC(ctx, pool, app.ApplicationID.String(), input), app.ApplicationID, app.Status, "")
+			assertIdentityRPC(t, submitIdentityRPC(t, ctx, pool, pool, app.ApplicationID.String(), input), app.ApplicationID, app.Status, "")
 			require.Equal(t, stored, readIdentity(t, ctx, pool, app.ApplicationID), "progressed replay modified identity")
 			got, err = NewApplicationRepository(pool).GetByID(ctx, app.ApplicationID)
 			require.NoError(t, err)
@@ -193,16 +189,16 @@ func TestIntegrationSubmitIdentityConflictsAndStates(t *testing.T) {
 			case "invalid":
 				input.IdNumber = "bad"
 			}
-			assertIdentityRPC(t, submitIdentityRPC(ctx, pool, app.ApplicationID.String(), input), app.ApplicationID, "", tc.code)
+			assertIdentityRPC(t, submitIdentityRPC(t, ctx, pool, pool, app.ApplicationID.String(), input), app.ApplicationID, "", tc.code)
 			got, err := NewApplicationRepository(pool).GetByID(ctx, app.ApplicationID)
 			require.NoError(t, err)
 			assertApplication(t, got, app)
 			require.Equal(t, before, readIdentity(t, ctx, pool, app.ApplicationID), "rejected request changed identity")
 		})
 	}
-	assertIdentityRPC(t, submitIdentityRPC(ctx, pool, uuid.NewString(), identityPayload()), uuid.Nil, "", "not_found")
-	assertIdentityRPC(t, submitIdentityRPC(ctx, pool, "APP-001", identityPayload()), uuid.Nil, "", "invalid_argument")
-	assertIdentityRPC(t, submitIdentityRPC(ctx, pool, uuid.NewString(), nil), uuid.Nil, "", "invalid_argument")
+	assertIdentityRPC(t, submitIdentityRPC(t, ctx, pool, pool, uuid.NewString(), identityPayload()), uuid.Nil, "", "not_found")
+	assertIdentityRPC(t, submitIdentityRPC(t, ctx, pool, pool, "APP-001", identityPayload()), uuid.Nil, "", "invalid_argument")
+	assertIdentityRPC(t, submitIdentityRPC(t, ctx, pool, pool, uuid.NewString(), nil), uuid.Nil, "", "invalid_argument")
 }
 
 func TestIntegrationSubmitIdentityConcurrent(t *testing.T) {
@@ -226,7 +222,7 @@ func TestIntegrationSubmitIdentityConcurrent(t *testing.T) {
 				go func(i int) {
 					defer wg.Done()
 					<-start
-					responses[i] = submitIdentityRPC(ctx, pool, app.ApplicationID.String(), inputs[i])
+					responses[i] = submitIdentityRPC(t, ctx, pool, pool, app.ApplicationID.String(), inputs[i])
 				}(i)
 			}
 			close(start)
@@ -263,9 +259,15 @@ func TestIntegrationSubmitIdentityConcurrent(t *testing.T) {
 func TestIntegrationSubmitIdentityDatabaseErrors(t *testing.T) {
 	pool, ctx := integrationPool(t)
 	app := identityFixture(t, ctx, pool, domain.ApplicationStatusPendingIdentitySubmission)
-	// Reuse the existing failing DB adapter for a begin failure; no transaction fault injection.
+	// Inject a begin failure through generated mocks; PostgreSQL verifies no data changed.
 	const sensitive = "synthetic-sensitive-driver-detail"
-	response := submitIdentityRPC(ctx, failingDB{errors.New(sensitive)}, app.ApplicationID.String(), identityPayload())
+	txDB := NewMockTransactorDB(t)
+	txDB.EXPECT().Begin(mock.MatchedBy(func(actual context.Context) bool {
+		deadline, ok := actual.Deadline()
+		wantDeadline, wantOK := ctx.Deadline()
+		return ok == wantOK && deadline.Equal(wantDeadline) && actual.Done() == ctx.Done()
+	})).Return(nil, errors.New(sensitive)).Once()
+	response := submitIdentityRPC(t, ctx, NewMockApplicationDB(t), txDB, app.ApplicationID.String(), identityPayload())
 	assertIdentityRPC(t, response, app.ApplicationID, "", "internal")
 	require.NotContains(t, response.Body.String(), sensitive, "RPC exposed database detail")
 	for _, deadline := range []bool{false, true} {
@@ -277,7 +279,7 @@ func TestIntegrationSubmitIdentityDatabaseErrors(t *testing.T) {
 			code = "deadline_exceeded"
 		}
 		cancel()
-		assertIdentityRPC(t, submitIdentityRPC(requestCtx, pool, app.ApplicationID.String(), identityPayload()), app.ApplicationID, "", code)
+		assertIdentityRPC(t, submitIdentityRPC(t, requestCtx, pool, pool, app.ApplicationID.String(), identityPayload()), app.ApplicationID, "", code)
 	}
 	got, err := NewApplicationRepository(pool).GetByID(ctx, app.ApplicationID)
 	require.NoError(t, err)
