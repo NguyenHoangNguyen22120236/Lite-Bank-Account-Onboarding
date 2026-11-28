@@ -1,18 +1,19 @@
 # Onboarding lifecycle
 
-This is the PR 08 target, not current implementation. Status labels omit
+This is the future orchestration target, corrected in PR 09 to direct SDK calls.
+PR 09 implements startup only; Signals, Updates, Activities, and timers remain staged. Status labels omit
 APPLICATION_STATUS_. EXPIRED requires a future additive contract/schema change.
 
 ```mermaid
 flowchart TD
-    Start[Customer starts application] --> Persist[Main BE commits application and start intent]
+    Start[Customer starts application] --> Persist[Main BE commits application pending terms]
     Persist --> Startup[Start workflow with application_id]
     Startup --> Terms[Durably wait for terms or deadline]
-    Terms --> Accept[Main BE commits acceptance, status, and Signal intent]
+    Terms --> Accept[Main BE commits acceptance and status; then sends a direct Signal]
     Accept --> Identity[Durably wait for identity or deadline]
     Identity --> Validate[Main BE validates submitted identity]
     Validate -->|Invalid; no state transition| Identity
-    Validate -->|Commit identity, status, and Signal intent| Verify[Activity verifies identity]
+    Validate -->|Commit identity and status; then send a direct Signal| Verify[Activity verifies identity]
     Verify -->|Not verified| Reject[Main BE records REJECTED]
     Verify -->|Verified| Screen[Activity screens sanctions]
     Screen -->|Clear| Approve[Main BE records APPROVED]
@@ -73,3 +74,8 @@ target applications. Startup delivery is separate from business progress.
 APPROVED is not COMPLETED; notification delivery is separate from both.
 Normal workflow closure follows terminal persistence. Abnormal closure requires
 reconciliation rather than inference of a business outcome.
+
+PR 09 starts Temporal after persistence without changing business status. Failed
+or uncertain startup requires StartApplication retry with the same request_id.
+A crash in this gap has no autonomous recovery. SubmitIdentity commits pending
+verification without signaling until PR 11; the current workflow only waits.

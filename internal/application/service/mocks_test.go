@@ -6,7 +6,6 @@ package service
 
 import (
 	"context"
-	"time"
 
 	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/application/domain"
 	"github.com/google/uuid"
@@ -558,72 +557,6 @@ func (_c *MockSubmitIdentityRepository_AdvanceAfterIdentity_Call) RunAndReturn(r
 	return _c
 }
 
-// GetByID provides a mock function for the type MockSubmitIdentityRepository
-func (_mock *MockSubmitIdentityRepository) GetByID(context1 context.Context, uUID uuid.UUID) (domain.Application, error) {
-	ret := _mock.Called(context1, uUID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetByID")
-	}
-
-	var r0 domain.Application
-	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, uuid.UUID) (domain.Application, error)); ok {
-		return returnFunc(context1, uUID)
-	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, uuid.UUID) domain.Application); ok {
-		r0 = returnFunc(context1, uUID)
-	} else {
-		r0 = ret.Get(0).(domain.Application)
-	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, uuid.UUID) error); ok {
-		r1 = returnFunc(context1, uUID)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
-}
-
-// MockSubmitIdentityRepository_GetByID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetByID'
-type MockSubmitIdentityRepository_GetByID_Call struct {
-	*mock.Call
-}
-
-// GetByID is a helper method to define mock.On call
-//   - context1 context.Context
-//   - uUID uuid.UUID
-func (_e *MockSubmitIdentityRepository_Expecter) GetByID(context1 any, uUID any) *MockSubmitIdentityRepository_GetByID_Call {
-	return &MockSubmitIdentityRepository_GetByID_Call{Call: _e.mock.On("GetByID", context1, uUID)}
-}
-
-func (_c *MockSubmitIdentityRepository_GetByID_Call) Run(run func(context1 context.Context, uUID uuid.UUID)) *MockSubmitIdentityRepository_GetByID_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 uuid.UUID
-		if args[1] != nil {
-			arg1 = args[1].(uuid.UUID)
-		}
-		run(
-			arg0,
-			arg1,
-		)
-	})
-	return _c
-}
-
-func (_c *MockSubmitIdentityRepository_GetByID_Call) Return(application domain.Application, err error) *MockSubmitIdentityRepository_GetByID_Call {
-	_c.Call.Return(application, err)
-	return _c
-}
-
-func (_c *MockSubmitIdentityRepository_GetByID_Call) RunAndReturn(run func(context1 context.Context, uUID uuid.UUID) (domain.Application, error)) *MockSubmitIdentityRepository_GetByID_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // GetByIDForUpdate provides a mock function for the type MockSubmitIdentityRepository
 func (_mock *MockSubmitIdentityRepository) GetByIDForUpdate(context1 context.Context, uUID uuid.UUID) (domain.Application, error) {
 	ret := _mock.Called(context1, uUID)
@@ -811,84 +744,6 @@ func (_c *MockSubmitIdentityRepository_InsertIdentity_Call) Return(err error) *M
 }
 
 func (_c *MockSubmitIdentityRepository_InsertIdentity_Call) RunAndReturn(run func(context1 context.Context, identity domain.Identity) error) *MockSubmitIdentityRepository_InsertIdentity_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// ResolveWorkflowStart provides a mock function for the type MockSubmitIdentityRepository
-func (_mock *MockSubmitIdentityRepository) ResolveWorkflowStart(context1 context.Context, uUID uuid.UUID, applicationStatus domain.ApplicationStatus, time1 time.Time) (domain.Application, error) {
-	ret := _mock.Called(context1, uUID, applicationStatus, time1)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ResolveWorkflowStart")
-	}
-
-	var r0 domain.Application
-	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, uuid.UUID, domain.ApplicationStatus, time.Time) (domain.Application, error)); ok {
-		return returnFunc(context1, uUID, applicationStatus, time1)
-	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, uuid.UUID, domain.ApplicationStatus, time.Time) domain.Application); ok {
-		r0 = returnFunc(context1, uUID, applicationStatus, time1)
-	} else {
-		r0 = ret.Get(0).(domain.Application)
-	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, uuid.UUID, domain.ApplicationStatus, time.Time) error); ok {
-		r1 = returnFunc(context1, uUID, applicationStatus, time1)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
-}
-
-// MockSubmitIdentityRepository_ResolveWorkflowStart_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ResolveWorkflowStart'
-type MockSubmitIdentityRepository_ResolveWorkflowStart_Call struct {
-	*mock.Call
-}
-
-// ResolveWorkflowStart is a helper method to define mock.On call
-//   - context1 context.Context
-//   - uUID uuid.UUID
-//   - applicationStatus domain.ApplicationStatus
-//   - time1 time.Time
-func (_e *MockSubmitIdentityRepository_Expecter) ResolveWorkflowStart(context1 any, uUID any, applicationStatus any, time1 any) *MockSubmitIdentityRepository_ResolveWorkflowStart_Call {
-	return &MockSubmitIdentityRepository_ResolveWorkflowStart_Call{Call: _e.mock.On("ResolveWorkflowStart", context1, uUID, applicationStatus, time1)}
-}
-
-func (_c *MockSubmitIdentityRepository_ResolveWorkflowStart_Call) Run(run func(context1 context.Context, uUID uuid.UUID, applicationStatus domain.ApplicationStatus, time1 time.Time)) *MockSubmitIdentityRepository_ResolveWorkflowStart_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 uuid.UUID
-		if args[1] != nil {
-			arg1 = args[1].(uuid.UUID)
-		}
-		var arg2 domain.ApplicationStatus
-		if args[2] != nil {
-			arg2 = args[2].(domain.ApplicationStatus)
-		}
-		var arg3 time.Time
-		if args[3] != nil {
-			arg3 = args[3].(time.Time)
-		}
-		run(
-			arg0,
-			arg1,
-			arg2,
-			arg3,
-		)
-	})
-	return _c
-}
-
-func (_c *MockSubmitIdentityRepository_ResolveWorkflowStart_Call) Return(application domain.Application, err error) *MockSubmitIdentityRepository_ResolveWorkflowStart_Call {
-	_c.Call.Return(application, err)
-	return _c
-}
-
-func (_c *MockSubmitIdentityRepository_ResolveWorkflowStart_Call) RunAndReturn(run func(context1 context.Context, uUID uuid.UUID, applicationStatus domain.ApplicationStatus, time1 time.Time) (domain.Application, error)) *MockSubmitIdentityRepository_ResolveWorkflowStart_Call {
 	_c.Call.Return(run)
 	return _c
 }

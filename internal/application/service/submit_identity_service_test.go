@@ -32,8 +32,8 @@ func TestSubmitIdentityValidation(t *testing.T) {
 		{"invalid identity", uuid.NewString(), &domain.Identity{}, domain.ErrInvalidIdentity},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			tx, repo, starter := NewMockTransactor(t), NewMockSubmitIdentityRepository(t), NewMockWorkflowStarter(t)
-			got, err := NewSubmitIdentityService(tx, repo, starter).SubmitIdentity(context.Background(), tc.id, tc.identity)
+			tx, repo := NewMockTransactor(t), NewMockSubmitIdentityRepository(t)
+			got, err := NewSubmitIdentityService(tx, repo).SubmitIdentity(context.Background(), tc.id, tc.identity)
 			require.ErrorIs(t, err, tc.want)
 			require.Empty(t, got)
 		})
@@ -54,7 +54,7 @@ func TestSubmitIdentityPersistence(t *testing.T) {
 			original := *input
 			stored := *input
 			stored.ApplicationID = id
-			tx, repo, starter := NewMockTransactor(t), NewMockSubmitIdentityRepository(t), NewMockWorkflowStarter(t)
+			tx, repo := NewMockTransactor(t), NewMockSubmitIdentityRepository(t)
 			tx.EXPECT().WithinTx(ctx, mock.Anything).RunAndReturn(func(_ context.Context, fn func(context.Context) error) error {
 				err := fn(txCtx)
 				require.ErrorIs(t, err, cause)
@@ -67,7 +67,7 @@ func TestSubmitIdentityPersistence(t *testing.T) {
 			}
 			read := repo.EXPECT().GetIdentity(txCtx, id).Return(&stored, readErr).Once()
 			mock.InOrder(lock, read)
-			got, err := NewSubmitIdentityService(tx, repo, starter).SubmitIdentity(ctx, id.String(), input)
+			got, err := NewSubmitIdentityService(tx, repo).SubmitIdentity(ctx, id.String(), input)
 			require.ErrorIs(t, err, cause)
 			if cause == nil {
 				require.Equal(t, app, got)
@@ -83,22 +83,16 @@ func TestSubmitIdentityOrchestration(t *testing.T) {
 	ctx := context.Background()
 	identityCtx, cancelIdentity := context.WithCancel(ctx)
 	defer cancelIdentity()
-	startupCtx, cancelStartup := context.WithCancel(identityCtx)
-	defer cancelStartup()
 	id := uuid.New()
 	initial := domain.Application{ApplicationID: id, TemporalWorkflowID: id.String(), Status: domain.ApplicationStatusPendingIdentitySubmission}
 	pending := initial
-	pending.Status = domain.ApplicationStatusPendingWorkflowStart
-	verified := pending
-	verified.Status = domain.ApplicationStatusPendingIdentityVerification
+	pending.Status = domain.ApplicationStatusPendingIdentityVerification
 	input := serviceIdentity()
 	original := *input
-	tx, repo, starter := NewMockTransactor(t), NewMockSubmitIdentityRepository(t), NewMockWorkflowStarter(t)
-	identityCommitted := false
+	tx, repo := NewMockTransactor(t), NewMockSubmitIdentityRepository(t)
 	firstTx := tx.EXPECT().WithinTx(ctx, mock.Anything).RunAndReturn(func(_ context.Context, fn func(context.Context) error) error {
 		err := fn(identityCtx)
 		require.NoError(t, err)
-		identityCommitted = true
 		return err
 	}).Once()
 	lock := repo.EXPECT().GetByIDForUpdate(identityCtx, id).Return(initial, nil).Once()
@@ -109,26 +103,12 @@ func TestSubmitIdentityOrchestration(t *testing.T) {
 	advance := repo.EXPECT().AdvanceAfterIdentity(identityCtx, mock.MatchedBy(func(i domain.Identity) bool {
 		return reflect.DeepEqual(i, inserted)
 	})).Return(pending, nil).Once()
-	start := starter.EXPECT().EnsureStarted(ctx, id.String(), initial.TemporalWorkflowID).
-		Run(func(context.Context, string, string) {
-			require.True(t, identityCommitted, "startup must follow commit")
-		}).
-		Return(WorkflowStartEstablished, nil).Once()
-	secondTx := tx.EXPECT().WithinTx(ctx, mock.Anything).RunAndReturn(func(_ context.Context, fn func(context.Context) error) error {
-		return fn(startupCtx)
-	}).Once()
-	startupLock := repo.EXPECT().GetByIDForUpdate(startupCtx, id).Return(pending, nil).Once()
-	before := time.Now().UTC()
-	resolve := repo.EXPECT().ResolveWorkflowStart(startupCtx, id, domain.ApplicationStatusPendingIdentityVerification,
-		mock.MatchedBy(func(now time.Time) bool {
-			return now.Location() == time.UTC && !now.Before(before) && !now.After(time.Now())
-		})).
-		Return(verified, nil).Once()
-	mock.InOrder(firstTx, lock, read, insert, advance, start, secondTx, startupLock, resolve)
+	mock.InOrder(firstTx, lock, read, insert, advance)
 
-	got, err := NewSubmitIdentityService(tx, repo, starter).SubmitIdentity(ctx, id.String(), input)
+	before := time.Now().UTC()
+	got, err := NewSubmitIdentityService(tx, repo).SubmitIdentity(ctx, id.String(), input)
 	require.NoError(t, err)
-	require.Equal(t, verified, got)
+	require.Equal(t, pending, got)
 	require.Equal(t, id, inserted.ApplicationID)
 	require.False(t, inserted.CreatedAt.Before(before))
 	require.False(t, inserted.CreatedAt.After(time.Now()))
@@ -172,7 +152,7 @@ func TestSubmitIdentityDomainDecisions(t *testing.T) {
 			if tc.changed {
 				input.FullName += "changed"
 			}
-			tx, repo, starter := NewMockTransactor(t), NewMockSubmitIdentityRepository(t), NewMockWorkflowStarter(t)
+			tx, repo := NewMockTransactor(t), NewMockSubmitIdentityRepository(t)
 			tx.EXPECT().WithinTx(ctx, mock.Anything).RunAndReturn(func(_ context.Context, fn func(context.Context) error) error {
 				err := fn(txCtx)
 				require.ErrorIs(t, err, tc.want)
@@ -182,7 +162,7 @@ func TestSubmitIdentityDomainDecisions(t *testing.T) {
 			read := repo.EXPECT().GetIdentity(txCtx, id).Return(stored, nil).Once()
 			mock.InOrder(lock, read)
 			// Replays and rejections must not write or start a workflow.
-			got, err := NewSubmitIdentityService(tx, repo, starter).SubmitIdentity(ctx, id.String(), input)
+			got, err := NewSubmitIdentityService(tx, repo).SubmitIdentity(ctx, id.String(), input)
 			require.ErrorIs(t, err, tc.want)
 			if err == nil {
 				require.Equal(t, app, got)
@@ -202,8 +182,8 @@ func TestSubmitIdentityTransactionFailures(t *testing.T) {
 			id := uuid.New()
 			initial := domain.Application{ApplicationID: id, TemporalWorkflowID: id.String(), Status: domain.ApplicationStatusPendingIdentitySubmission}
 			pending := initial
-			pending.Status = domain.ApplicationStatusPendingWorkflowStart
-			tx, repo, starter := NewMockTransactor(t), NewMockSubmitIdentityRepository(t), NewMockWorkflowStarter(t)
+			pending.Status = domain.ApplicationStatusPendingIdentityVerification
+			tx, repo := NewMockTransactor(t), NewMockSubmitIdentityRepository(t)
 			if stage == "begin" {
 				tx.EXPECT().WithinTx(ctx, mock.Anything).Return(repository.ErrDatabase).Once()
 			} else {
@@ -234,7 +214,7 @@ func TestSubmitIdentityTransactionFailures(t *testing.T) {
 				}
 				mock.InOrder(calls...)
 			}
-			got, err := NewSubmitIdentityService(tx, repo, starter).SubmitIdentity(ctx, id.String(), serviceIdentity())
+			got, err := NewSubmitIdentityService(tx, repo).SubmitIdentity(ctx, id.String(), serviceIdentity())
 			require.ErrorIs(t, err, repository.ErrDatabase)
 			require.Empty(t, got)
 		})

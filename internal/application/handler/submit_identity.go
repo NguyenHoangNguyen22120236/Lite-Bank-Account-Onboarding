@@ -26,10 +26,6 @@ func (h *Handler) SubmitIdentity(ctx context.Context, req *connect.Request[onboa
 	app, err := h.submitIdentity.SubmitIdentity(ctx, req.Msg.GetApplicationId(), identity)
 	if err != nil {
 		switch {
-		case errors.Is(err, service.ErrWorkflowClosed), errors.Is(err, service.ErrWorkflowStateInconsistent):
-			return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("workflow requires operational reconciliation"))
-		case errors.Is(err, service.ErrWorkflowUnavailable):
-			return nil, connect.NewError(connect.CodeUnavailable, service.ErrWorkflowUnavailable)
 		case errors.Is(err, service.ErrInvalidApplicationID):
 			return nil, connect.NewError(connect.CodeInvalidArgument, service.ErrInvalidApplicationID)
 		case errors.Is(err, domain.ErrInvalidIdentity):

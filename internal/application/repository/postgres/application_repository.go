@@ -129,12 +129,13 @@ func (r *ApplicationRepository) AdvanceAfterIdentity(ctx context.Context, i doma
 	}
 	return readApplication(ctx, "advance application after identity", tx.QueryRow(ctx,
 		`UPDATE applications SET status=$2, updated_at=$3 WHERE application_id=$1 AND status=$4 RETURNING `+columns,
-		i.ApplicationID, string(domain.ApplicationStatusPendingWorkflowStart), i.CreatedAt,
+		i.ApplicationID, string(domain.ApplicationStatusPendingIdentityVerification), i.CreatedAt,
 		string(domain.ApplicationStatusPendingIdentitySubmission)))
 }
 
 // ResolveWorkflowStart performs only the conditional persistence update.
-// The service owns the transaction, row lock, and decision to advance.
+// Retained for legacy compatibility; PR 09 startup does not call this method.
+// The caller owns the transaction, row lock, and decision to advance.
 func (r *ApplicationRepository) ResolveWorkflowStart(ctx context.Context, id uuid.UUID, target domain.ApplicationStatus, now time.Time) (domain.Application, error) {
 	tx, ok := transactionFromContext(ctx)
 	if !ok {

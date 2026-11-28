@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.11.0] - 2026-11-28
+
+Direct Temporal startup from StartApplication (PR 09).
+
+### Changed
+
+- Move post-commit Temporal startup from SubmitIdentity to StartApplication; same-request retries resolve the persisted application and retained execution.
+- Preserve business state during startup, refresh persisted status, and skip Temporal for terminal application replays.
+- Require reconciliation for incompatible completed or unsuccessfully closed executions without overwriting business state or automatically recording FAILED_TECHNICAL.
+- Commit identity and PENDING_IDENTITY_VERIFICATION atomically without Temporal startup or Signals; preserve legacy pending-start replay compatibility.
+- Update service interfaces, dependency injection, RPC error mapping, generated mocks, and startup/domain/service/integration coverage.
+- Replace application creation and terms-persistence repository unit tests with PostgreSQL integration coverage; remove obsolete SubmitIdentity startup tests.
+- Align architecture, API, retry, database, lifecycle, and engineering documentation with direct SDK calls and staged orchestration.
+- Advance VERSION and README to 0.11.0.
+
+### Limitations
+
+- No outbox or autonomous startup recovery: retry StartApplication with the same request ID after failed or uncertain startup. A post-commit crash can leave an application without a workflow until retry.
+- Signals, Updates, business Activities, expiration, and account processing remain deferred. No protobuf or schema changes; existing workflows and legacy data are not migrated.
+
+### Verification
+
+- Release documentation checked against the current working-tree diff. Tests were not rerun for this documentation update; runtime verification, CI, and human review remain outstanding.
+
 ## [0.10.3] - 2026-11-28
 
 Engineering guidelines and development workflow documentation.

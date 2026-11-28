@@ -19,6 +19,10 @@ func (h *Handler) StartApplication(ctx context.Context, req *connect.Request[onb
 	app, err := h.startApplication.StartApplication(ctx, req.Msg.GetRequestId())
 	if err != nil {
 		switch {
+		case errors.Is(err, service.ErrWorkflowClosed), errors.Is(err, service.ErrWorkflowStateInconsistent):
+			return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("workflow requires operational reconciliation"))
+		case errors.Is(err, service.ErrWorkflowUnavailable):
+			return nil, connect.NewError(connect.CodeUnavailable, service.ErrWorkflowUnavailable)
 		case errors.Is(err, service.ErrInvalidRequestID):
 			return nil, connect.NewError(connect.CodeInvalidArgument, service.ErrInvalidRequestID)
 		case errors.Is(err, context.Canceled):

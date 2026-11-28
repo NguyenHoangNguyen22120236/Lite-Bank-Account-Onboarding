@@ -115,11 +115,11 @@ Do not silently invent or change requirements.
 
 ## 4. Temporal Principles
 
-PR 08 target architecture (documentation only; implementation is staged):
+Approved direct communication architecture (PR 09 startup; orchestration is staged):
 
-- StartApplication persists the application and durable startup intent, then starts Temporal after commit. Workflow ID equals application_id.
-- AcceptTerms and SubmitIdentity persist business data, status, and durable Signal intent atomically through service-owned Transactor.WithinTx, then signal after commit.
-- Use a transactional outbox and Main BE-owned recovery for startup and Signal delivery. Delivery state is separate from business status; never depend only on client retries.
+- StartApplication persists PENDING_TERMS_ACCEPTANCE, then calls the existing Temporal SDK adapter after commit. Workflow ID equals application_id. Startup never advances business status.
+- AcceptTerms and SubmitIdentity persist business data and status atomically through service-owned Transactor.WithinTx. Future Signals are sent directly after commit; PR 09 does not implement them.
+- Do not introduce Transactional Outbox, dispatchers, or delivery tables. Failed or uncertain startup is recovered by retrying StartApplication with the same request_id. A crash after commit can leave an application without a workflow until retry; no autonomous recovery is guaranteed.
 - Treat delivery as at least once. Use stable event identities and tolerate early, duplicate, delayed, and reordered Signals.
 - Use Temporal Updates for human review. Serialize competing decisions and complete successfully only after Main BE persists the audit, request result, and business transition.
 - Main BE remains authoritative for domain validation and application transactions; workflows orchestrate, Activities perform external I/O through service APIs.

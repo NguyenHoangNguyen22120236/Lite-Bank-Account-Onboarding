@@ -11,6 +11,6 @@ var (
 var (
 	ErrWorkflowClosed            = errors.New("workflow ended unsuccessfully; operational recovery required")
 	ErrWorkflowStateInconsistent = errors.New("workflow and application state are inconsistent")
-	ErrWorkflowUnavailable       = errors.New("workflow startup unavailable; retry the same submission")
+	ErrWorkflowUnavailable       = errors.New("workflow startup unavailable; retry StartApplication with the same request_id")
 	ErrWorkflowStartup           = errors.New("could not establish workflow startup")
 )

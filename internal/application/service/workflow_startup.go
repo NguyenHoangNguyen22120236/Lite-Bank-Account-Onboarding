@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"time"
 
 	"github.com/NguyenHoangNguyen22120236/Lite-Bank-Account-Onboarding/internal/application/domain"
 )
@@ -15,16 +14,17 @@ const (
 	WorkflowStartClosedUnsuccessfully
 )
 
-// WorkflowStarter hides Temporal transport details from application operations.
+// WorkflowStarter is the startup port consumed by StartApplicationService.
 type WorkflowStarter interface {
 	EnsureStarted(context.Context, string, string) (WorkflowStartOutcome, error)
 }
 
-func (s *SubmitIdentityService) startWorkflow(ctx context.Context, app domain.Application) (domain.Application, error) {
-	if app.Status != domain.ApplicationStatusPendingWorkflowStart {
+// startWorkflow runs after persistence and never writes business state.
+func (s *StartApplicationService) startWorkflow(ctx context.Context, app domain.Application) (domain.Application, error) {
+	if app.Status.Terminal() {
 		return app, nil
 	}
-	if app.TemporalWorkflowID != app.ApplicationID.String() {
+	if !app.Status.Valid() || app.ApplicationID.String() != app.TemporalWorkflowID {
 		return domain.Application{}, ErrWorkflowStateInconsistent
 	}
 	if s.starter == nil {
@@ -34,43 +34,31 @@ func (s *SubmitIdentityService) startWorkflow(ctx context.Context, app domain.Ap
 	if err != nil {
 		return domain.Application{}, err
 	}
-	if outcome == WorkflowStartCompleted {
-		current, err := s.repository.GetByID(ctx, app.ApplicationID)
-		if err != nil {
-			return domain.Application{}, err
-		}
-		if current.Status != domain.ApplicationStatusCompleted && current.Status != domain.ApplicationStatusRejected {
-			return domain.Application{}, ErrWorkflowStateInconsistent
-		}
-		return current, nil
-	}
-	var target domain.ApplicationStatus
 	switch outcome {
-	case WorkflowStartEstablished:
-		target = domain.ApplicationStatusPendingIdentityVerification
-	case WorkflowStartClosedUnsuccessfully:
-		target = domain.ApplicationStatusFailedTechnical
+	case WorkflowStartEstablished, WorkflowStartCompleted, WorkflowStartClosedUnsuccessfully:
 	default:
 		return domain.Application{}, ErrWorkflowStartup
 	}
-	var current domain.Application
-	err = s.transactor.WithinTx(ctx, func(txCtx context.Context) error {
-		var err error
-		current, err = s.repository.GetByIDForUpdate(txCtx, app.ApplicationID)
-		if err != nil {
-			return err
-		}
-		if current.Status != domain.ApplicationStatusPendingWorkflowStart {
-			return nil
-		}
-		current, err = s.repository.ResolveWorkflowStart(txCtx, app.ApplicationID, target, time.Now().UTC())
-		return err
-	})
+	current, err := s.repository.GetByRequestID(ctx, app.RequestID)
 	if err != nil {
 		return domain.Application{}, err
 	}
-	if outcome == WorkflowStartClosedUnsuccessfully && current.Status == domain.ApplicationStatusFailedTechnical {
+	if current.ApplicationID != app.ApplicationID || current.TemporalWorkflowID != app.TemporalWorkflowID {
+		return domain.Application{}, ErrWorkflowStateInconsistent
+	}
+	switch outcome {
+	case WorkflowStartEstablished:
+		return current, nil
+	case WorkflowStartCompleted:
+		if current.Status == domain.ApplicationStatusCompleted || current.Status == domain.ApplicationStatusRejected {
+			return current, nil
+		}
+		return domain.Application{}, ErrWorkflowStateInconsistent
+	default:
+		// A concurrent terminal business result is authoritative; never overwrite it.
+		if current.Status.Terminal() {
+			return current, nil
+		}
 		return domain.Application{}, ErrWorkflowClosed
 	}
-	return current, nil
 }

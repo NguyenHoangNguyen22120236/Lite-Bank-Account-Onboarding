@@ -9,6 +9,30 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestApplicationStatusTerminal(t *testing.T) {
+	for _, tc := range []struct {
+		status   ApplicationStatus
+		terminal bool
+	}{
+		{ApplicationStatusCompleted, true},
+		{ApplicationStatusRejected, true},
+		{ApplicationStatusFailedTechnical, true},
+		{ApplicationStatusPendingTermsAcceptance, false},
+		{ApplicationStatusPendingIdentitySubmission, false},
+		{ApplicationStatusPendingIdentityVerification, false},
+		{ApplicationStatusPendingSanctionsScreening, false},
+		{ApplicationStatusPendingHumanReview, false},
+		{ApplicationStatusApproved, false},
+		{ApplicationStatusPendingAccountCreation, false},
+		{ApplicationStatusPendingWorkflowStart, false},
+		{"", false},
+	} {
+		t.Run(string(tc.status), func(t *testing.T) {
+			require.Equal(t, tc.terminal, tc.status.Terminal())
+		})
+	}
+}
+
 func TestNewApplication(t *testing.T) {
 	id, requestID := uuid.New(), uuid.New()
 	now := time.Date(2026, 11, 21, 10, 20, 30, 123456000, time.FixedZone("ICT", 7*60*60))

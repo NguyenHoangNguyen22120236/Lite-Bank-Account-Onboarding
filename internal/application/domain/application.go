@@ -50,6 +50,11 @@ func (s ApplicationStatus) Valid() bool {
 	}
 }
 
+// Terminal applications cannot resume onboarding through ordinary request retries.
+func (s ApplicationStatus) Terminal() bool {
+	return s == ApplicationStatusCompleted || s == ApplicationStatusRejected || s == ApplicationStatusFailedTechnical
+}
+
 // RejectedAtStep is optional on Application; absence is represented by nil.
 type RejectedAtStep string
 

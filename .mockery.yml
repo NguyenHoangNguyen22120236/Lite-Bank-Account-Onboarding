@@ -26,3 +26,8 @@ packages:
       SubmitIdentityRepository:
       Transactor:
       WorkflowStarter:
+        configs:
+          - dir: "{{.InterfaceDir}}"
+          - dir: internal/application/repository/postgres
+            filename: workflow_mocks_test.go
+            pkgname: postgres
